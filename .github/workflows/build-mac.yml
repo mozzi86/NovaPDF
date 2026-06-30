@@ -1,0 +1,32 @@
+name: Build macOS DMG
+
+# Builds the NovaPDF .dmg on a real macOS runner (a DMG cannot be built on Windows).
+# Trigger manually from the Actions tab, or on a version tag like v1.0.0.
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-dmg:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build DMG (arm64 + x64)
+        run: npm run dist:mac
+
+      - name: Upload DMG artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: NovaPDF-dmg
+          path: release/*.dmg
+          if-no-files-found: error

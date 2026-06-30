@@ -1,0 +1,152 @@
+const { app, BrowserWindow, ipcMain, dialog, Menu, shell } = require('electron');
+const fs = require('fs');
+const path = require('path');
+
+let mainWindow = null;
+
+// Recent-files store in userData (%APPDATA%) — writable even when the app
+// itself lives in a read-only location like Program Files.
+const Recent = {
+  file: () => path.join(app.getPath('userData'), 'recent.json'),
+  get() { try { return JSON.parse(fs.readFileSync(this.file(), 'utf8')); } catch { return []; } },
+  set(a) { try { fs.writeFileSync(this.file(), JSON.stringify(a)); } catch {} },
+  add(p) {
+    if (!p) return;
+    let a = this.get().filter((x) => x.path !== p);
+    a.unshift({ path: p, name: path.basename(p), time: Date.now() });
+    this.set(a.slice(0, 12));
+  }
+};
+
+function createWindow() {
+  mainWindow = new BrowserWindow({
+    width: 1400,
+    height: 900,
+    minWidth: 900,
+    minHeight: 600,
+    backgroundColor: '#1f2430',
+    title: 'NovaPDF',
+    icon: path.join(__dirname, 'build', 'icon.ico'),
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false
+    }
+  });
+
+  mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
+  buildMenu();
+
+  // Open a file passed on the command line (e.g. "open with NovaPDF")
+  const fileArg = process.argv.slice(1).find((a) => a.toLowerCase().endsWith('.pdf'));
+  if (fileArg && fs.existsSync(fileArg)) {
+    Recent.add(fileArg);
+    mainWindow.webContents.once('did-finish-load', () => {
+      const data = fs.readFileSync(fileArg);
+      mainWindow.webContents.send('open-file-data', { name: path.basename(fileArg), bytes: data });
+    });
+  }
+}
+
+function buildMenu() {
+  const template = [
+    {
+      label: 'Datei',
+      submenu: [
+        { label: 'Startseite', accelerator: 'CmdOrCtrl+H', click: () => mainWindow.webContents.send('menu', 'home') },
+        { label: 'Öffnen…', accelerator: 'CmdOrCtrl+O', click: () => mainWindow.webContents.send('menu', 'open') },
+        { label: 'Hinzufügen / Zusammenführen…', click: () => mainWindow.webContents.send('menu', 'add') },
+        { type: 'separator' },
+        { label: 'Speichern unter…', accelerator: 'CmdOrCtrl+S', click: () => mainWindow.webContents.send('menu', 'save') },
+        { type: 'separator' },
+        { role: 'quit', label: 'Beenden' }
+      ]
+    },
+    {
+      label: 'Bearbeiten',
+      submenu: [
+        { label: 'Rückgängig', accelerator: 'CmdOrCtrl+Z', click: () => mainWindow.webContents.send('menu', 'undo') },
+        { type: 'separator' },
+        { label: 'Suchen…', accelerator: 'CmdOrCtrl+F', click: () => mainWindow.webContents.send('menu', 'find') }
+      ]
+    },
+    {
+      label: 'Ansicht',
+      submenu: [
+        { label: 'Vergrößern', accelerator: 'CmdOrCtrl+=', click: () => mainWindow.webContents.send('menu', 'zoom-in') },
+        { label: 'Verkleinern', accelerator: 'CmdOrCtrl+-', click: () => mainWindow.webContents.send('menu', 'zoom-out') },
+        { label: 'An Breite anpassen', accelerator: 'CmdOrCtrl+0', click: () => mainWindow.webContents.send('menu', 'zoom-fit') },
+        { type: 'separator' },
+        { role: 'togglefullscreen', label: 'Vollbild' },
+        { role: 'toggleDevTools', label: 'Entwicklertools' }
+      ]
+    },
+    {
+      label: 'Hilfe',
+      submenu: [
+        { label: 'Über NovaPDF', click: () => dialog.showMessageBox(mainWindow, { type: 'info', title: 'NovaPDF', message: 'NovaPDF', detail: 'Portabler PDF-Editor\nView · Annotate · Organize · Forms · Sign · Edit\n\nSchwarz Architekturbüro' }) }
+      ]
+    }
+  ];
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+}
+
+// ---- IPC: file dialogs (main process owns the filesystem) ----
+ipcMain.handle('dialog:open', async (_e, { multi } = {}) => {
+  const res = await dialog.showOpenDialog(mainWindow, {
+    title: 'PDF öffnen',
+    filters: [{ name: 'PDF', extensions: ['pdf'] }],
+    properties: multi ? ['openFile', 'multiSelections'] : ['openFile']
+  });
+  if (res.canceled) return [];
+  res.filePaths.forEach((p) => Recent.add(p));
+  return res.filePaths.map((p) => ({ name: path.basename(p), path: p, bytes: fs.readFileSync(p) }));
+});
+
+// Recent files
+ipcMain.handle('recent:get', () => Recent.get().filter((r) => { try { return fs.existsSync(r.path); } catch { return false; } }));
+ipcMain.handle('recent:read', (_e, p) => {
+  try { if (!fs.existsSync(p)) return { missing: true }; Recent.add(p); return { name: path.basename(p), path: p, bytes: fs.readFileSync(p) }; }
+  catch (e) { return { missing: true }; }
+});
+ipcMain.handle('recent:clear', () => { Recent.set([]); return true; });
+
+ipcMain.handle('dialog:openImage', async (_e, { multi } = {}) => {
+  const res = await dialog.showOpenDialog(mainWindow, {
+    title: 'Bild wählen',
+    filters: [{ name: 'Bilder', extensions: ['png', 'jpg', 'jpeg'] }],
+    properties: multi ? ['openFile', 'multiSelections'] : ['openFile']
+  });
+  if (res.canceled) return multi ? [] : null;
+  const map = (p) => ({ name: path.basename(p), ext: path.extname(p).toLowerCase(), bytes: fs.readFileSync(p) });
+  return multi ? res.filePaths.map(map) : map(res.filePaths[0]);
+});
+
+ipcMain.handle('dialog:save', async (_e, { defaultName, bytes, ext }) => {
+  const e2 = (ext || 'pdf').replace('.', '');
+  const res = await dialog.showSaveDialog(mainWindow, {
+    title: 'Datei speichern',
+    defaultPath: defaultName || ('dokument.' + e2),
+    filters: [{ name: e2.toUpperCase(), extensions: [e2] }]
+  });
+  if (res.canceled) return { ok: false };
+  fs.writeFileSync(res.filePath, Buffer.from(bytes));
+  return { ok: true, path: res.filePath };
+});
+
+// Save many files (e.g. page images) into a chosen folder
+ipcMain.handle('dialog:saveMany', async (_e, { files, subdir }) => {
+  const res = await dialog.showOpenDialog(mainWindow, {
+    title: 'Zielordner wählen',
+    properties: ['openDirectory', 'createDirectory']
+  });
+  if (res.canceled) return { ok: false };
+  let dir = res.filePaths[0];
+  if (subdir) { dir = path.join(dir, subdir); fs.mkdirSync(dir, { recursive: true }); }
+  for (const f of files) fs.writeFileSync(path.join(dir, f.name), Buffer.from(f.bytes));
+  return { ok: true, path: dir, count: files.length };
+});
+
+app.whenReady().then(createWindow);
+app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
+app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });

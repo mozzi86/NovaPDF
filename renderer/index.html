@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data: blob:; font-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; worker-src 'self' blob:; connect-src 'self' blob: data:;" />
+  <title>NovaPDF</title>
+  <link rel="stylesheet" href="../vendor/phosphor/style.css" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <!-- App header -->
+  <header id="appbar">
+    <button class="ghost brand-btn" data-act="home" title="Startseite">
+      <i class="ph ph-file-pdf"></i><span class="brand">Nova<b>PDF</b></span>
+    </button>
+    <div id="editor-tools" class="hidden">
+      <span class="doc-name" id="doc-name"></span>
+    </div>
+    <div class="grow"></div>
+    <div class="search-wrap" id="home-search-wrap">
+      <i class="ph ph-magnifying-glass"></i>
+      <input id="search" type="search" placeholder="Werkzeug suchen…" autocomplete="off" />
+    </div>
+  </header>
+
+  <!-- ============ HOME / LAUNCHER ============ -->
+  <main id="home">
+    <div class="home-inner">
+      <h1>Was möchten Sie tun?</h1>
+      <p class="lead">Alle Werkzeuge laufen vollständig lokal auf diesem Rechner. Nichts wird hochgeladen.</p>
+      <section id="recent-group" class="group hidden">
+        <div class="group-head">
+          <h2 class="group-title">Zuletzt geöffnet</h2>
+          <button class="ghost tiny" id="recent-clear">Liste leeren</button>
+        </div>
+        <div id="recent-list" class="recent-list"></div>
+      </section>
+      <div id="tool-groups"></div>
+      <p id="no-results" class="muted-note hidden">Kein Werkzeug gefunden.</p>
+    </div>
+  </main>
+
+  <!-- ============ EDITOR ============ -->
+  <section id="editor" class="hidden">
+    <div id="toolbar">
+      <button class="ghost" data-act="home" title="Zurück zur Startseite"><i class="ph ph-house"></i></button>
+      <div class="sep"></div>
+      <div class="tgroup">
+        <div class="menu-wrap">
+          <button data-act="tools-menu"><i class="ph ph-squares-four"></i> Werkzeuge <i class="ph ph-caret-down sm"></i></button>
+          <div class="menu wide hidden" id="tools-menu"></div>
+        </div>
+        <button data-act="add" title="Weitere PDF anhängen"><i class="ph ph-file-plus"></i></button>
+        <div class="menu-wrap">
+          <button data-act="export-menu" class="primary"><i class="ph ph-floppy-disk"></i> Speichern <i class="ph ph-caret-down sm"></i></button>
+          <div class="menu hidden" id="export-menu">
+            <button data-export="pdf"><i class="ph ph-file-pdf"></i> Als PDF</button>
+            <button data-export="flat"><i class="ph ph-lock-simple"></i> Als PDF (fixiert / gesperrt)</button>
+            <button data-export="forensic"><i class="ph ph-shield-check"></i> Als PDF (forensisch, Text entfernt)</button>
+            <button data-export="png"><i class="ph ph-image"></i> Als Bilder (PNG)</button>
+            <button data-export="jpg"><i class="ph ph-image"></i> Als Bilder (JPG)</button>
+          </div>
+        </div>
+      </div>
+      <div class="sep"></div>
+      <div class="tgroup tools" id="tool-buttons">
+        <button data-tool="cursor" class="active" title="Auswählen"><i class="ph ph-cursor"></i></button>
+        <button data-tool="highlight" title="Markieren"><i class="ph ph-highlighter"></i></button>
+        <button data-tool="draw" title="Zeichnen"><i class="ph ph-pencil-simple"></i></button>
+        <button data-tool="text" title="Textfeld"><i class="ph ph-textbox"></i></button>
+        <button data-tool="rect" title="Rechteck"><i class="ph ph-square"></i></button>
+        <button data-tool="redact" title="Schwärzen"><i class="ph ph-eraser"></i></button>
+        <button data-tool="edittext" title="Text bearbeiten"><i class="ph ph-note-pencil"></i></button>
+        <button data-tool="image" title="Bild einfügen"><i class="ph ph-image"></i></button>
+        <button data-tool="sign" title="Unterschrift"><i class="ph ph-signature"></i></button>
+      </div>
+      <div class="sep"></div>
+      <div class="tgroup">
+        <input type="color" id="color" value="#ffd400" title="Farbe" />
+        <input type="range" id="size" min="1" max="40" value="3" title="Strichstärke" />
+      </div>
+      <div class="sep"></div>
+      <div class="tgroup">
+        <button data-act="zoom-out" title="Verkleinern"><i class="ph ph-minus"></i></button>
+        <span id="zoom-label">100%</span>
+        <button data-act="zoom-in" title="Vergrößern"><i class="ph ph-plus"></i></button>
+      </div>
+      <div class="grow"></div>
+      <div class="tgroup">
+        <button data-act="forensic" title="Forensisch schwärzen — Text unter Schwärzungen/Bearbeitungen wirklich entfernen"><i class="ph ph-shield-check"></i></button>
+        <button data-act="undo" title="Rückgängig"><i class="ph ph-arrow-counter-clockwise"></i></button>
+        <div class="search-wrap small">
+          <i class="ph ph-magnifying-glass"></i>
+          <input id="find" type="search" placeholder="Im Dokument suchen…" />
+        </div>
+      </div>
+    </div>
+
+    <div id="main">
+      <aside id="sidebar">
+        <div class="side-head">Seiten <span id="page-count"></span></div>
+        <div id="thumbs"></div>
+      </aside>
+      <div id="viewer"><div id="pages"></div></div>
+      <aside id="props">
+        <div class="side-head">Formularfelder</div>
+        <div id="fields"></div>
+      </aside>
+    </div>
+  </section>
+
+  <footer id="statusbar"><span id="status">Bereit</span></footer>
+
+  <!-- Signature modal -->
+  <div id="sign-modal" class="modal hidden">
+    <div class="modal-box">
+      <h3>Unterschrift zeichnen</h3>
+      <canvas id="sign-pad" width="520" height="200"></canvas>
+      <div class="modal-actions">
+        <button id="sign-clear" class="ghost">Löschen</button>
+        <button id="sign-cancel" class="ghost">Abbrechen</button>
+        <button id="sign-ok" class="primary">Übernehmen</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Generic prompt modal -->
+  <div id="prompt-modal" class="modal hidden">
+    <div class="modal-box">
+      <h3 id="prompt-title">Eingabe</h3>
+      <div id="prompt-body"></div>
+      <div class="modal-actions">
+        <button id="prompt-cancel" class="ghost">Abbrechen</button>
+        <button id="prompt-ok" class="primary">OK</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="../vendor/pdf-lib.min.js"></script>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
