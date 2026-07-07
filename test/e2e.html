@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="de">
+<head><meta charset="UTF-8"><title>NovaPDF E2E-Runner</title>
+<style>body{font-family:monospace;background:#111;color:#ddd;margin:0;display:flex;flex-direction:column;height:100vh}
+#log{padding:8px;height:180px;overflow:auto;border-bottom:1px solid #333;flex-shrink:0;font-size:12px}
+iframe{flex:1;border:0;width:100%}</style>
+</head>
+<body>
+<div id="log">E2E-Runner startet…</div>
+<iframe id="app" src="../renderer/index.html"></iframe>
+<script type="module">
+const RESULTS = window.__RESULTS = { done: false, tests: [], log: [] };
+const logEl = document.getElementById('log');
+const log = (m) => { RESULTS.log.push(m); logEl.textContent += '\n' + m; logEl.scrollTop = 1e9; };
+const rec = (name, pass, detail) => { RESULTS.tests.push({ name, pass: !!pass, detail: String(detail || '') }); log((pass ? 'PASS ' : 'FAIL ') + name + (detail ? ' — ' + detail : '')); };
+
+// Hintergrund-Tab: rAF feuert nicht — pdf.js-Rendering (auch im Parent) daran vorbeileiten
+window.requestAnimationFrame = (cb) => setTimeout(() => cb(performance.now()), 16);
+const pdfjs = await import('../vendor/pdf.mjs');
+pdfjs.GlobalWorkerOptions.workerSrc = new URL('../vendor/pdf.worker.mjs', import.meta.url).href;
+
+const frame = document.getElementById('app');
+// Robust warten, bis die App im iframe wirklich initialisiert ist (PDFLib + UI da)
+{
+  const t0 = Date.now();
+  while (Date.now() - t0 < 20000) {
+    const w = frame.contentWindow, d = frame.contentDocument;
+    if (w && d && w.PDFLib && d.querySelector('#status') && d.querySelector('#tools-menu button')) break;
+    await new Promise((r) => setTimeout(r, 150));
+  }
+  if (!frame.contentWindow.PDFLib) { log('ABBRUCH: App im iframe nicht geladen'); window.__RESULTS.done = true; throw new Error('iframe'); }
+}
+const IW = frame.contentWindow, ID = frame.contentDocument;
+IW.requestAnimationFrame = (cb) => setTimeout(() => cb(performance.now()), 16);
+// Realm-Helfer: pdf-lib im iframe prüft mit instanceof — Arrays/TypedArrays
+// müssen aus dem iframe-Realm stammen; für das Parent-pdf.js umgekehrt.
+const A = (...xs) => IW.Array.from(xs);
+const toParent = (u8) => new Uint8Array(u8);
+
+// ---- nova-Shim ----
+const saved = []; let fileQueue = [], imageQueue = [];
+IW.nova = {
+  openDialog: async () => fileQueue.length ? [fileQueue.shift()] : [],
+  openImageDialog: async (opts) => (opts && opts.multi) ? imageQueue.splice(0) : (imageQueue.shift() || null),
+  save: async (p) => { saved.push(p); return { ok: true, path: '/t/' + p.defaultName }; },
+  saveMany: async (p) => { saved.push(p); return { ok: true, path: '/t/dir', count: p.files.length }; },
+  getRecent: async () => [], readRecent: async () => ({ missing: true }), clearRecent: async () => true,
+  onMenu: () => {}, onOpenFileData: () => {}
+};
+
+// ---- Helfer ----
+const status = () => ID.querySelector('#status').textContent;
+const wait = async (cond, ms = 20000) => { const t0 = Date.now(); while (Date.now() - t0 < ms) { if (cond()) return true; await new Promise((r) => setTimeout(r, 150)); } return false; };
+const waitStatus = (s, ms) => wait(() => status().includes(s), ms);
+const tool = (label) => { const b = [...ID.querySelectorAll('#tools-menu button')].find((x) => x.textContent.includes(label)); if (!b) throw new Error('Tool fehlt: ' + label); b.click(); };
+const promptOk = async (vals) => {
+  await wait(() => !ID.querySelector('#prompt-modal').classList.contains('hidden'), 8000);
+  const ins = ID.querySelectorAll('#prompt-body input, #prompt-body select');
+  (vals || []).forEach((v, i) => { if (v !== null && ins[i]) ins[i].value = v; });
+  ID.querySelector('#prompt-ok').click();
+};
+const drop = async (bytes, name) => {
+  const dt = new DataTransfer(); dt.items.add(new File([bytes], name, { type: 'application/pdf' }));
+  IW.dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true }));
+  return waitStatus('geladen', 25000);
+};
+const lastSaved = () => saved[saved.length - 1];
+const textOf = async (bytes, n) => {
+  const d = await pdfjs.getDocument({ data: toParent(bytes) }).promise;
+  const tc = await (await d.getPage(n)).getTextContent();
+  const t = tc.items.map((i) => i.str).join(' ').trim(); await d.destroy(); return t;
+};
+const renderPx = async (bytes, n, x, y, scale = 1) => {
+  const d = await pdfjs.getDocument({ data: toParent(bytes) }).promise;
+  const p = await d.getPage(n); const vp = p.getViewport({ scale });
+  const c = document.createElement('canvas'); c.width = vp.width; c.height = vp.height;
+  const ctx = c.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height);
+  await p.render({ canvasContext: ctx, viewport: vp }).promise;
+  const px = ctx.getImageData(x, y, 1, 1).data; await d.destroy();
+  return [px[0], px[1], px[2]];
+};
+const mkDoc = async (n, withForm) => {
+  const { PDFDocument, StandardFonts } = IW.PDFLib;
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  for (let i = 1; i <= n; i++) { const p = doc.addPage(A(595, 842)); p.drawText('Seite ' + i, { x: 250, y: 420, size: 30, font }); }
+  if (withForm) { const f = doc.getForm(); const tf = f.createTextField('pruefer'); tf.setText('Elm'); tf.addToPage(doc.getPage(0), { x: 60, y: 700, width: 200, height: 24 }); }
+  return doc.save();
+};
+const mkPng = (color) => {
+  const c = document.createElement('canvas'); c.width = 40; c.height = 40;
+  const ctx = c.getContext('2d'); ctx.fillStyle = color; ctx.fillRect(0, 0, 40, 40);
+  const b64 = c.toDataURL('image/png').split(',')[1];
+  return Uint8Array.from(atob(b64), (ch) => ch.charCodeAt(0));
+};
+const exportPdf = async () => {
+  const before = saved.length;
+  ID.querySelector('[data-export="pdf"]').click();
+  await wait(() => saved.length > before, 25000);
+  return lastSaved().bytes;
+};
+
+// ================= TESTS =================
+try {
+  // --- Gruppe 1: Organisieren (löschen, drehen, verschieben) + Formular-Erhalt ---
+  await drop(await mkDoc(5, true), 'orga.pdf');
+  rec('Öffnen (Drop, 5 Seiten + Formular)', ID.querySelectorAll('.thumb').length === 5 && ID.querySelectorAll('#fields .field').length === 1);
+
+  ID.querySelectorAll('.thumb')[4].querySelector('button[title="Löschen"]').click();
+  await waitStatus('gelöscht');
+  rec('Seite löschen', ID.querySelectorAll('.thumb').length === 4);
+
+  ID.querySelectorAll('.thumb')[0].querySelector('button[title="Drehen"]').click();
+  await waitStatus('gedreht');
+  rec('Seite drehen (Thumb)', true);
+
+  const d2 = new DataTransfer(); d2.setData('text/plain', '0');
+  ID.querySelectorAll('.thumb')[2].dispatchEvent(new DragEvent('drop', { dataTransfer: d2, bubbles: true, cancelable: true }));
+  const movedOk = await waitStatus('verschoben');
+  const bytesOrga = await exportPdf();
+  let order = [], rot3 = false, moveErr = '';
+  try {
+    for (let i = 1; i <= 4; i++) order.push(await textOf(bytesOrga, i));
+    const dd = await pdfjs.getDocument({ data: toParent(bytesOrga) }).promise;
+    const vp = (await dd.getPage(3)).getViewport({ scale: 1 });
+    rot3 = vp.width > vp.height; await dd.destroy();
+  } catch (e) { moveErr = e.message; }
+  rec('Seite verschieben (Drag&Drop) + Export lesbar', movedOk && !moveErr && order.join(',') === 'Seite 2,Seite 3,Seite 1,Seite 4', moveErr || order.join(' | '));
+  rec('Verschobene Seite behält Drehung', rot3);
+  rec('Formularfeld überlebt Verschieben', ID.querySelectorAll('#fields .field').length === 1);
+
+  // --- Gruppe 2: Zusammenführen / Entfernen / Extrahieren / Teilen ---
+  fileQueue.push({ name: 'anhang.pdf', path: '/t/anhang.pdf', bytes: await mkDoc(2) });
+  ID.querySelector('[data-act="add"]').click();
+  await waitStatus('zusammengeführt');
+  rec('PDF zusammenführen', ID.querySelectorAll('.thumb').length === 6);
+
+  tool('Seiten entfernen'); await promptOk(['5-6']);
+  await waitStatus('entfernt');
+  rec('Seiten entfernen (Bereich)', ID.querySelectorAll('.thumb').length === 4);
+
+  const beforeEx = saved.length;
+  tool('extrahieren'); await promptOk(['1-2']);
+  await wait(() => saved.length > beforeEx);
+  const exDoc = await pdfjs.getDocument({ data: toParent(lastSaved().bytes) }).promise;
+  rec('Seiten extrahieren', exDoc.numPages === 2, lastSaved().defaultName);
+  await exDoc.destroy();
+
+  const beforeSp = saved.length;
+  tool('PDF teilen'); await promptOk(['every', '2']);
+  await wait(() => saved.length > beforeSp);
+  rec('PDF teilen (alle 2 Seiten)', lastSaved().files && lastSaved().files.length === 2, (lastSaved().files || []).map((f) => f.name).join(', '));
+
+  // --- Gruppe 3: Bild einfügen, Unterschrift, Wasserzeichen, Seitenzahlen, Metadaten ---
+  await drop(await mkDoc(2), 'medien.pdf');
+  imageQueue.push({ name: 'logo.png', ext: '.png', bytes: mkPng('#e02020') });
+  ID.querySelector('[data-tool="image"]').click();
+  const wrap0 = ID.querySelector('.page-wrap[data-page="0"]');
+  const anno0 = wrap0.querySelector('canvas.anno');
+  const r0 = anno0.getBoundingClientRect();
+  anno0.dispatchEvent(new MouseEvent('click', { clientX: r0.left + 150, clientY: r0.top + 560, bubbles: true }));
+  await waitStatus('Bild eingefügt');
+  let b = await exportPdf();
+  const pxImg = await renderPx(b, 1, 230, 640);
+  rec('Bild einfügen (rot @Mitte)', pxImg[0] > 180 && pxImg[1] < 90, pxImg.join(','));
+
+  ID.querySelector('[data-tool="sign"]').click();
+  anno0.dispatchEvent(new MouseEvent('click', { clientX: r0.left + 300, clientY: r0.top + 200, bubbles: true }));
+  await wait(() => !ID.querySelector('#sign-modal').classList.contains('hidden'));
+  const pad = ID.querySelector('#sign-pad');
+  const pr = pad.getBoundingClientRect();
+  pad.dispatchEvent(new MouseEvent('mousedown', { clientX: pr.left + 30, clientY: pr.top + 100, bubbles: true }));
+  for (let i = 1; i <= 8; i++) pad.dispatchEvent(new MouseEvent('mousemove', { clientX: pr.left + 30 + i * 55, clientY: pr.top + 100 + Math.sin(i) * 40, bubbles: true }));
+  IW.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+  ID.querySelector('#sign-ok').click();
+  await waitStatus('Unterschrift eingefügt');
+  b = await exportPdf();
+  let sigInk = false;
+  { const d = await pdfjs.getDocument({ data: toParent(b) }).promise;
+    const p = await d.getPage(1); const vp = p.getViewport({ scale: 1 });
+    const c = document.createElement('canvas'); c.width = vp.width; c.height = vp.height;
+    const ctx = c.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height);
+    await p.render({ canvasContext: ctx, viewport: vp }).promise;
+    const img = ctx.getImageData(300, 200, 180, 70).data;
+    for (let i = 0; i < img.length; i += 4) if (img[i] < 100 && img[i + 1] < 100) { sigInk = true; break; }
+    await d.destroy(); }
+  rec('Unterschrift zeichnen + einbrennen', sigInk);
+
+  tool('Wasserzeichen'); await promptOk(['VERTRAULICH']);
+  await waitStatus('Wasserzeichen gesetzt');
+  b = await exportPdf();
+  // pdf.js verschluckt bei rotiertem Text mitunter das letzte Zeichen der Extraktion
+  rec('Wasserzeichen', (await textOf(b, 2)).includes('VERTRAULIC'), await textOf(b, 2));
+
+  tool('Seitenzahlen'); await promptOk(['nt']);
+  await waitStatus('Seitenzahlen gesetzt');
+  b = await exportPdf();
+  rec('Seitenzahlen (1 / N)', (await textOf(b, 1)).includes('1 / 2'), await textOf(b, 1));
+
+  tool('Metadaten'); await promptOk(['E2E-Titel', 'Testautor', 'Betreff', 'a, b']);
+  await waitStatus('Metadaten aktualisiert');
+  b = await exportPdf();
+  { const { PDFDocument } = IW.PDFLib; const md = await PDFDocument.load(b.slice(0), { ignoreEncryption: true });
+    rec('Metadaten (Titel/Autor)', md.getTitle() === 'E2E-Titel' && md.getAuthor() === 'Testautor', md.getTitle() + '/' + md.getAuthor()); }
+
+  // --- Gruppe 4: Suche + Zoom ---
+  const find = ID.querySelector('#find');
+  find.value = 'Seite';
+  find.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+  await waitStatus('Treffer');
+  rec('Suche im Dokument', status().includes('Treffer'), status());
+
+  const z0 = ID.querySelector('#zoom-label').textContent;
+  ID.querySelector('[data-act="zoom-in"]').click();
+  await wait(() => ID.querySelector('#zoom-label').textContent !== z0, 15000);
+  rec('Zoom', ID.querySelector('#zoom-label').textContent !== z0, z0 + ' → ' + ID.querySelector('#zoom-label').textContent);
+
+  // --- Gruppe 5: Bilder→PDF und PDF→Bilder ---
+  imageQueue.push({ name: 'b1.png', ext: '.png', bytes: mkPng('#2050e0') }, { name: 'b2.png', ext: '.png', bytes: mkPng('#20a040') });
+  tool('Bilder zu PDF');
+  await waitStatus('als PDF erstellt');
+  rec('Bilder zu PDF', ID.querySelectorAll('.thumb').length === 2);
+
+  const beforeImg = saved.length;
+  tool('PDF zu Bildern');
+  await wait(() => saved.length > beforeImg, 30000);
+  const files = lastSaved().files || [];
+  const isPng = files.length && files[0].bytes[0] === 0x89 && files[0].bytes[1] === 0x50;
+  rec('PDF zu Bildern (PNG-Export)', files.length === 2 && isPng, files.map((f) => f.name).join(', '));
+
+  rec('GESAMT', RESULTS.tests.every((t) => t.pass || t.name === 'GESAMT'), RESULTS.tests.filter((t) => t.pass).length + '/' + RESULTS.tests.length);
+} catch (e) {
+  rec('RUNNER-ABBRUCH', false, e.message + ' @ ' + (e.stack || '').split('\n')[1]);
+}
+RESULTS.done = true;
+log('FERTIG.');
+</script>
+</body>
+</html>

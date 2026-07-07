@@ -351,26 +351,27 @@ async function applyForensic({ silent = false } = {}) {
   const baked = await buildExport({ flatten: false });
   const bakedDoc = await PDFDocument.load(baked.slice(0), { ignoreEncryption: true });
   const rdoc = await pdfjsLib.getDocument({ data: baked.slice(0) }).promise;
-  const out = await PDFDocument.create();
-  for (let i = 0; i < bakedDoc.getPageCount(); i++) {
-    if (affected.has(i)) {
-      const srcPage = bakedDoc.getPage(i);
-      const { width, height } = srcPage.getSize();
-      const R = pageRot(srcPage);
-      // Rasterbild kommt in Anzeige-Orientierung — Ausgabeseite entsprechend drehen
-      const pw = R % 180 ? height : width, ph = R % 180 ? width : height;
-      const page = await rdoc.getPage(i + 1);
-      const vp1 = page.getViewport({ scale: 1 });
-      const eff = Math.min(200 / 72, 8000 / Math.max(vp1.width, vp1.height)); // Speicherschutz bei Planformaten
-      const vp = page.getViewport({ scale: eff });
-      const c = el('canvas'); c.width = vp.width; c.height = vp.height;
-      await page.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise;
-      const blob = await new Promise((r) => c.toBlob(r, 'image/png'));
-      const png = await out.embedPng(await blobToBytes(blob));
-      const pg = out.addPage([pw, ph]); pg.drawImage(png, { x: 0, y: 0, width: pw, height: ph });
-    } else { const [cp] = await out.copyPages(bakedDoc, [i]); out.addPage(cp); }
+  // Betroffene Seiten IN-PLACE durch Rasterbilder ersetzen — ein Neuaufbau per
+  // copyPages würde den AcroForm-Baum (Formularfelder) verlieren.
+  for (const i of [...affected].sort((a, b) => a - b)) {
+    const srcPage = bakedDoc.getPage(i);
+    const { width, height } = srcPage.getSize();
+    const R = pageRot(srcPage);
+    // Rasterbild kommt in Anzeige-Orientierung — Ausgabeseite entsprechend drehen
+    const pw = R % 180 ? height : width, ph = R % 180 ? width : height;
+    const page = await rdoc.getPage(i + 1);
+    const vp1 = page.getViewport({ scale: 1 });
+    const eff = Math.min(200 / 72, 8000 / Math.max(vp1.width, vp1.height)); // Speicherschutz bei Planformaten
+    const vp = page.getViewport({ scale: eff });
+    const c = el('canvas'); c.width = vp.width; c.height = vp.height;
+    await page.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise;
+    const blob = await new Promise((r) => c.toBlob(r, 'image/png'));
+    const png = await bakedDoc.embedPng(await blobToBytes(blob));
+    bakedDoc.removePage(i);
+    const pg = bakedDoc.insertPage(i, [pw, ph]);
+    pg.drawImage(png, { x: 0, y: 0, width: pw, height: ph });
   }
-  S.pdfDoc = await PDFDocument.load(await out.save());
+  S.pdfDoc = await PDFDocument.load(await bakedDoc.save());
   S.annos = {}; S.formValues = {}; S.watermark = null; S.pageNumbers = null; S.stamp = null;
   await refresh(); readForm();
   status(`Forensisch angewendet — Text auf ${affected.size} Seite(n) unwiederbringlich entfernt.`);
@@ -410,9 +411,31 @@ async function deletePage(i) {
 }
 async function movePage(from, to) {
   if (from === to) return;
-  const order = [...Array(S.pdfDoc.getPageCount()).keys()]; order.splice(to, 0, order.splice(from, 1)[0]);
-  const nd = await PDFDocument.create(); (await nd.copyPages(S.pdfDoc, order)).forEach((p) => nd.addPage(p)); S.pdfDoc = nd;
-  const na = {}; order.forEach((o, n) => { if (S.annos[o]) na[n] = S.annos[o]; }); S.annos = na;
+  // Verlustfrei: die Seiten-Referenz im (flachen) Seitenbaum umhängen —
+  // ein Neuaufbau per copyPages würde Formularfelder verlieren, und
+  // removePage+insertPage derselben PDFPage korrumpiert den Baum.
+  let moved = false;
+  try {
+    const kids = S.pdfDoc.catalog.Pages().Kids();
+    if (kids.size() === S.pdfDoc.getPageCount()) {
+      const ref = kids.get(from);
+      kids.remove(from);
+      kids.insert(to, ref);
+      try { S.pdfDoc.pageCache.invalidate(); } catch {}
+      moved = true;
+    }
+  } catch {}
+  if (!moved) {
+    // Verschachtelter Seitenbaum: Seite innerhalb desselben Dokuments kopieren.
+    const [cp] = await S.pdfDoc.copyPages(S.pdfDoc, [from]);
+    S.pdfDoc.removePage(from);
+    S.pdfDoc.insertPage(Math.min(to, S.pdfDoc.getPageCount()), cp);
+  }
+  remapAnnos((idx) => {
+    if (idx === from) return to;
+    if (from < to) return (idx > from && idx <= to) ? idx - 1 : idx;
+    return (idx >= to && idx < from) ? idx + 1 : idx;
+  });
   await refresh(); status('Seite verschoben');
 }
 function remapAnnos(map) { const o = {}; for (const k in S.annos) { const nk = map(+k); if (nk !== null) o[nk] = S.annos[k]; } S.annos = o; }
@@ -517,7 +540,7 @@ async function buildExport({ flatten = false } = {}) {
       }
     }
     if (S.watermark) {
-      const t = S.watermark.text, fsz = Math.max(28, dw / (t.length * 0.5));
+      const t = S.watermark.text, fsz = Math.max(28, Math.min(96, dw / (t.length * 0.55)));
       const p = vpPoint(dw * 0.12, dh * 0.58, width, height, R);
       drawTextSafe(page, t, { x: p.x, y: p.y, size: fsz, font, color: rgb(0.5, 0.5, 0.55), opacity: 0.22, rotate: degrees(R + 38) });
     }
