@@ -149,9 +149,12 @@ async function renderPages() {
   $('#zoom-label').textContent = Math.round(S.zoom * 100) + '%';
 }
 
+let thumbGen = 0; // same interleaving guard as renderPages
 async function renderThumbs() {
+  const gen = ++thumbGen;
   const host = $('#thumbs'); host.innerHTML = '';
   for (let i = 0; i < S.pdfjs.numPages; i++) {
+    if (gen !== thumbGen) return;
     const page = await S.pdfjs.getPage(i + 1);
     const vp = page.getViewport({ scale: 0.22 });
     const t = el('div', 'thumb' + (i === S.selected ? ' sel' : '')); t.draggable = true; t.dataset.page = i;
