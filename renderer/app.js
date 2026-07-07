@@ -11,7 +11,7 @@ const S = {
   pdfDoc: null, bytes: null, pdfjs: null,
   zoom: 1.0, tool: 'cursor', color: '#ffd400', size: 3,
   annos: {}, formValues: {}, vp1: [], textItems: [], fileName: 'dokument.pdf',
-  selected: 0, undo: [], watermark: null, pageNumbers: null
+  selected: 0, undo: [], watermark: null, pageNumbers: null, stamp: null
 };
 
 const $ = (s) => document.querySelector(s);
@@ -29,6 +29,7 @@ const TOOLS = [
   { id: 'rotate', g: 'Organisieren', icon: 'ph-arrow-clockwise', label: 'Seiten drehen', desc: 'Einzelne Seiten ausrichten' },
   { id: 'remove', g: 'Organisieren', icon: 'ph-trash', label: 'Seiten entfernen', desc: 'Bestimmte Seiten löschen' },
   { id: 'extract', g: 'Organisieren', icon: 'ph-export', label: 'Seiten extrahieren', desc: 'Auswahl als neue PDF' },
+  { id: 'compare', g: 'Organisieren', icon: 'ph-git-diff', label: 'PDF vergleichen', desc: 'Zwei Versionen nebeneinander + Differenz' },
 
   { id: 'img2pdf', g: 'Konvertieren', icon: 'ph-images', label: 'Bilder zu PDF', desc: 'PNG/JPG in ein PDF wandeln' },
   { id: 'pdf2img', g: 'Konvertieren', icon: 'ph-image', label: 'PDF zu Bildern', desc: 'Jede Seite als PNG/JPG' },
@@ -38,6 +39,8 @@ const TOOLS = [
   { id: 'edittext', g: 'Bearbeiten', icon: 'ph-note-pencil', label: 'Text bearbeiten', desc: 'Vorhandenen Text ändern & ersetzen' },
   { id: 'sign', g: 'Bearbeiten', icon: 'ph-signature', label: 'PDF signieren', desc: 'Unterschrift einfügen' },
   { id: 'redact', g: 'Bearbeiten', icon: 'ph-eraser', label: 'Schwärzen', desc: 'Inhalte unkenntlich machen' },
+  { id: 'stamp', g: 'Bearbeiten', icon: 'ph-stamp', label: 'Stempel', desc: 'Bild-/Textstempel auf gewählte Seiten' },
+  { id: 'overlay', g: 'Bearbeiten', icon: 'ph-stack', label: 'Briefkopf / Overlay', desc: 'Zweites PDF über Seiten legen' },
   { id: 'watermark', g: 'Bearbeiten', icon: 'ph-drop', label: 'Wasserzeichen', desc: 'Text über alle Seiten' },
   { id: 'numbers', g: 'Bearbeiten', icon: 'ph-list-numbers', label: 'Seitenzahlen', desc: 'Nummerierung hinzufügen' },
   { id: 'metadata', g: 'Bearbeiten', icon: 'ph-info', label: 'Metadaten', desc: 'Titel, Autor, Stichwörter' },
@@ -92,7 +95,7 @@ async function openAndShow(bytes, name) {
     return false;
   }
   S.pdfDoc = doc;
-  S.annos = {}; S.formValues = {}; S.undo = []; S.watermark = null; S.pageNumbers = null;
+  S.annos = {}; S.formValues = {}; S.undo = []; S.watermark = null; S.pageNumbers = null; S.stamp = null;
   if (name) { S.fileName = name; $('#doc-name').textContent = name; }
   await refresh(true); readForm();
   showView('editor');
@@ -353,7 +356,7 @@ async function applyForensic({ silent = false } = {}) {
     } else { const [cp] = await out.copyPages(bakedDoc, [i]); out.addPage(cp); }
   }
   S.pdfDoc = await PDFDocument.load(await out.save());
-  S.annos = {}; S.formValues = {}; S.watermark = null; S.pageNumbers = null;
+  S.annos = {}; S.formValues = {}; S.watermark = null; S.pageNumbers = null; S.stamp = null;
   await refresh(); readForm();
   status(`Forensisch angewendet — Text auf ${affected.size} Seite(n) unwiederbringlich entfernt.`);
   return true;
@@ -472,6 +475,7 @@ async function buildExport({ flatten = false } = {}) {
   const doc = await PDFDocument.load(S.bytes.slice(0), { ignoreEncryption: true });
   applyFormValues(doc);
   const font = await doc.embedFont(StandardFonts.Helvetica);
+  let stampEmb = null, stampBold = null; // per-export caches (doc-bound)
   const pages = doc.getPages();
   for (let i = 0; i < pages.length; i++) {
     const page = pages[i], { width, height } = page.getSize();
@@ -507,6 +511,26 @@ async function buildExport({ flatten = false } = {}) {
       const w = font.widthOfTextAtSize(label, 10);
       const p = vpPoint((dw - w) / 2, dh - 22, width, height, R);
       drawTextSafe(page, label, { x: p.x, y: p.y, size: 10, font, color: rgb(0.35, 0.4, 0.5), rotate: degrees(R) });
+    }
+    if (S.stamp && (!S.stamp.pages || S.stamp.pages.includes(i))) {
+      const st = S.stamp, m = 24;
+      const w = dw * st.widthPct / 100;
+      if (st.kind === 'image') {
+        if (!stampEmb) { const raw = dataUrlToBytes(st.dataUrl); stampEmb = st.dataUrl.startsWith('data:image/png') ? await doc.embedPng(raw) : await doc.embedJpg(raw); }
+        const h = w * st.aspect;
+        const xd = st.pos[1] === 'l' ? m : st.pos[1] === 'c' ? (dw - w) / 2 : dw - w - m;
+        const yd = st.pos[0] === 't' ? m : st.pos[0] === 'c' ? (dh - h) / 2 : dh - h - m;
+        const p = vpPoint(xd, yd + h, width, height, R);
+        page.drawImage(stampEmb, { x: p.x, y: p.y, width: w, height: h, rotate: degrees(R), opacity: st.opacity });
+      } else {
+        if (!stampBold) stampBold = await doc.embedFont(StandardFonts.HelveticaBold);
+        const size = Math.max(8, w / Math.max(0.1, stampBold.widthOfTextAtSize(st.text, 1)));
+        const tw = stampBold.widthOfTextAtSize(st.text, size);
+        const xd = st.pos[1] === 'l' ? m : st.pos[1] === 'c' ? (dw - tw) / 2 : dw - tw - m;
+        const yd = st.pos[0] === 't' ? m : st.pos[0] === 'c' ? (dh - size) / 2 : dh - size - m;
+        const p = vpPoint(xd, yd + size, width, height, R);
+        drawTextSafe(page, st.text, { x: p.x, y: p.y, size, font: stampBold, color: rgb(0.78, 0.12, 0.12), opacity: st.opacity, rotate: degrees(R) });
+      }
     }
   }
   if (flatten) { try { doc.getForm().flatten(); } catch {} }
@@ -560,7 +584,7 @@ async function flatten() {
   if (!S.pdfDoc) return; pushUndo();
   const bytes = await buildExport({ flatten: true });
   S.pdfDoc = await PDFDocument.load(bytes, { ignoreEncryption: true });
-  S.annos = {}; S.formValues = {}; S.watermark = null; S.pageNumbers = null;
+  S.annos = {}; S.formValues = {}; S.watermark = null; S.pageNumbers = null; S.stamp = null;
   await refresh(); readForm(); status('Formular & Notizen fixiert (flattened)');
 }
 
@@ -628,6 +652,9 @@ async function dispatch(id) {
     case 'extract': if (await ensureDoc()) await opExtract(); break;
     case 'img2pdf': await opImagesToPdf(); break;
     case 'pdf2img': if (await ensureDoc()) await exportImages('png'); break;
+    case 'stamp': if (await ensureDoc()) await opStamp(); break;
+    case 'overlay': if (await ensureDoc()) await opOverlay(); break;
+    case 'compare': if (await ensureDoc()) await opCompare(); break;
     case 'watermark': if (await ensureDoc()) await opWatermark(); break;
     case 'numbers': if (await ensureDoc()) await opNumbers(); break;
     case 'metadata': if (await ensureDoc()) await opMetadata(); break;
@@ -711,6 +738,117 @@ async function refreshOverlayFromExport() {
   const preview = await buildExport({ flatten: false });
   S.pdfjs = await pdfjsLib.getDocument({ data: preview.slice(0) }).promise;
   await renderPages();
+}
+
+async function opStamp() {
+  const total = S.pdfDoc.getPageCount();
+  const a = await showPrompt({ title: 'Stempel', fields: [
+    { key: 'kind', label: 'Art', type: 'select', options: [{ value: 'image', label: 'Bild (PNG/JPG) — z. B. Prüfstempel' }, { value: 'text', label: 'Text' }] },
+    { key: 'text', label: 'Text (nur bei Art „Text")', value: 'GEPRÜFT' },
+    { key: 'pos', label: 'Position', type: 'select', value: 'tr', options: [
+      { value: 'tl', label: 'Oben links' }, { value: 'tc', label: 'Oben Mitte' }, { value: 'tr', label: 'Oben rechts' },
+      { value: 'cc', label: 'Mitte' },
+      { value: 'bl', label: 'Unten links' }, { value: 'bc', label: 'Unten Mitte' }, { value: 'br', label: 'Unten rechts' }
+    ] },
+    { key: 'size', label: 'Breite in % der Seitenbreite', type: 'number', value: '20' },
+    { key: 'pages', label: 'Seiten (leer = alle)', placeholder: 'z. B. 1,3-5', hint: `Dokument hat ${total} Seiten` },
+    { key: 'opacity', label: 'Deckkraft in % (10–100)', type: 'number', value: '100' }
+  ] });
+  if (!a) return;
+  const stamp = {
+    kind: a.kind, pos: a.pos,
+    widthPct: Math.min(100, Math.max(3, parseFloat(a.size) || 20)),
+    opacity: Math.min(1, Math.max(0.1, (parseFloat(a.opacity) || 100) / 100)),
+    pages: a.pages.trim() ? parseRanges(a.pages, total) : null
+  };
+  if (a.kind === 'image') {
+    const img = await window.nova.openImageDialog(); if (!img) return;
+    stamp.dataUrl = `data:image/${img.ext === '.png' ? 'png' : 'jpeg'};base64,` + bytesToB64(img.bytes);
+    const im = await loadImg(stamp.dataUrl); stamp.aspect = im.height / im.width;
+  } else {
+    // WinAnsi-sicher halten, sonst wirft widthOfTextAtSize beim Baken
+    stamp.text = [...a.text.trim()].map((ch) => (ch.charCodeAt(0) <= 0xff ? ch : '?')).join('');
+    if (!stamp.text) return;
+  }
+  S.stamp = stamp;
+  await refreshOverlayFromExport();
+  status('Stempel gesetzt — beim Speichern eingebrannt');
+}
+
+async function opOverlay() {
+  status('Overlay-PDF wählen (z. B. Briefkopf)…');
+  const files = await window.nova.openDialog({ multi: false }); if (!files[0]) { status('Bereit'); return; }
+  let src;
+  try { src = await PDFDocument.load(files[0].bytes, { ignoreEncryption: true }); }
+  catch (e) { status('Overlay konnte nicht geladen werden: ' + e.message); return; }
+  if (src.isEncrypted) { status('Overlay-PDF ist verschlüsselt — bitte zuerst entsperren.'); return; }
+  const total = S.pdfDoc.getPageCount();
+  const a = await showPrompt({ title: 'Briefkopf / Overlay', fields: [
+    { key: 'src', label: `Overlay-Seite aus „${files[0].name}" (1–${src.getPageCount()})`, type: 'number', value: '1' },
+    { key: 'pages', label: 'Auf welche Seiten legen? (leer = alle)', placeholder: 'z. B. 1 oder 2-99', hint: `Dokument hat ${total} Seiten. Das Overlay wird über den Inhalt gelegt und auf Seitengröße skaliert.` }
+  ] });
+  if (!a) return;
+  const srcIdx = Math.min(src.getPageCount(), Math.max(1, parseInt(a.src, 10) || 1)) - 1;
+  const targets = a.pages.trim() ? parseRanges(a.pages, total) : [...Array(total).keys()];
+  if (!targets.length) { status('Keine gültigen Seiten angegeben'); return; }
+  const [emb] = await S.pdfDoc.embedPdf(files[0].bytes, [srcIdx]);
+  for (const t of targets) {
+    const page = S.pdfDoc.getPage(t); const { width, height } = page.getSize();
+    page.drawPage(emb, { x: 0, y: 0, width, height });
+  }
+  await refresh();
+  status(`Overlay auf ${targets.length} Seite(n) gelegt — nicht rückgängig machbar, ggf. Datei neu öffnen.`);
+}
+
+// ---------------- Compare ----------------
+let CMP = null;
+async function opCompare() {
+  status('Vergleichs-PDF wählen…');
+  const files = await window.nova.openDialog({ multi: false }); if (!files[0]) { status('Bereit'); return; }
+  status('Vergleich wird vorbereitet…');
+  try {
+    const aDoc = await pdfjsLib.getDocument({ data: S.bytes.slice(0) }).promise;
+    const bDoc = await pdfjsLib.getDocument({ data: new Uint8Array(files[0].bytes) }).promise;
+    CMP = { a: aDoc, b: bDoc, nameA: S.fileName, nameB: files[0].name, page: 0, n: Math.max(aDoc.numPages, bDoc.numPages) };
+    $('#compare-modal').classList.remove('hidden');
+    await renderCompare();
+    status(`Vergleich: ${S.fileName} ↔ ${files[0].name}`);
+  } catch (e) { status('Vergleich fehlgeschlagen: ' + e.message); }
+}
+async function renderCmpPage(doc, idx, scale) {
+  if (idx >= doc.numPages) return null;
+  const page = await doc.getPage(idx + 1);
+  const vp = page.getViewport({ scale });
+  const c = el('canvas'); c.width = vp.width; c.height = vp.height;
+  await page.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise;
+  return c;
+}
+async function renderCompare() {
+  if (!CMP) return;
+  const host = $('#cmp-canvases'); host.innerHTML = '';
+  const mode = $('#cmp-mode').value, i = CMP.page;
+  $('#cmp-label').textContent = `Seite ${i + 1} / ${CMP.n}`;
+  const ca = await renderCmpPage(CMP.a, i, 1.5), cb = await renderCmpPage(CMP.b, i, 1.5);
+  const col = (c, cap) => {
+    const d = el('div', 'cmp-col');
+    if (c) d.appendChild(c); else { const m2 = el('div', 'muted-note'); m2.textContent = 'Seite fehlt in dieser Datei'; d.appendChild(m2); }
+    const s = el('div', 'cmp-cap'); s.textContent = cap; d.appendChild(s); return d;
+  };
+  if (mode === 'side') { host.append(col(ca, CMP.nameA + ' (geöffnet)'), col(cb, CMP.nameB)); return; }
+  // Differenzmodus: Abweichungen magenta auf abgesoftetem Original
+  const w = Math.max(ca ? ca.width : 1, cb ? cb.width : 1), h = Math.max(ca ? ca.height : 1, cb ? cb.height : 1);
+  const read = (srcC) => { const t = el('canvas'); t.width = w; t.height = h; const tc = t.getContext('2d'); tc.fillStyle = '#fff'; tc.fillRect(0, 0, w, h); if (srcC) tc.drawImage(srcC, 0, 0); return tc.getImageData(0, 0, w, h); };
+  const A = read(ca), B = read(cb);
+  const c = el('canvas'); c.width = w; c.height = h; const ctx = c.getContext('2d');
+  const out = ctx.createImageData(w, h);
+  let diff = 0;
+  for (let p = 0; p < A.data.length; p += 4) {
+    const d = Math.abs(A.data[p] - B.data[p]) + Math.abs(A.data[p + 1] - B.data[p + 1]) + Math.abs(A.data[p + 2] - B.data[p + 2]);
+    if (d > 48) { out.data[p] = 226; out.data[p + 1] = 30; out.data[p + 2] = 120; out.data[p + 3] = 255; diff++; }
+    else { const g = A.data[p] * 0.3 + A.data[p + 1] * 0.59 + A.data[p + 2] * 0.11; const v = 255 - (255 - g) * 0.3; out.data[p] = v; out.data[p + 1] = v; out.data[p + 2] = v; out.data[p + 3] = 255; }
+  }
+  ctx.putImageData(out, 0, 0);
+  host.append(col(c, diff ? `${((diff / (w * h)) * 100).toFixed(2)} % der Fläche unterschiedlich` : 'Keine Unterschiede auf dieser Seite'));
 }
 
 async function opMetadata() {
@@ -803,6 +941,10 @@ function bind() {
   $('#search').addEventListener('input', (e) => renderTiles(e.target.value));
   $('#find').addEventListener('keydown', (e) => { if (e.key === 'Enter') search($('#find').value); });
   $('#recent-clear').onclick = async (e) => { e.stopPropagation(); if (window.nova) await window.nova.clearRecent(); renderRecent(); };
+  $('#cmp-prev').onclick = () => { if (CMP && CMP.page > 0) { CMP.page--; renderCompare(); } };
+  $('#cmp-next').onclick = () => { if (CMP && CMP.page < CMP.n - 1) { CMP.page++; renderCompare(); } };
+  $('#cmp-mode').onchange = () => renderCompare();
+  $('#cmp-close').onclick = () => { $('#compare-modal').classList.add('hidden'); CMP = null; status('Bereit'); };
   buildToolsMenu();
   document.addEventListener('click', closeMenus);
 }

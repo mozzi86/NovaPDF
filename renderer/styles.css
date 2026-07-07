@@ -162,6 +162,17 @@ aside { background: var(--bg2); overflow-y: auto; flex-shrink: 0; }
 #prompt-body input:focus, #prompt-body select:focus { border-color: var(--accent); }
 #prompt-body .hint { color: var(--muted2); font-size: 12px; margin-top: 6px; }
 
+/* ---------- Compare ---------- */
+.compare-box { width: min(1280px, 94vw); max-height: 94vh; display: flex; flex-direction: column; }
+.compare-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+.compare-bar h3 { margin: 0; }
+.compare-bar select { background: var(--bg); border: 1px solid var(--line); color: var(--txt); border-radius: 8px; padding: 6px 8px; outline: none; }
+#cmp-label { min-width: 110px; text-align: center; color: var(--muted); font-variant-numeric: tabular-nums; }
+.cmp-canvases { display: flex; gap: 14px; overflow: auto; justify-content: center; min-height: 200px; }
+.cmp-col { text-align: center; min-width: 0; }
+.cmp-col canvas { max-width: 100%; height: auto; background: #fff; border-radius: 4px; box-shadow: 0 6px 24px rgba(0,0,0,.45); }
+.cmp-cap { font-size: 12px; color: var(--muted); margin-top: 6px; }
+
 ::-webkit-scrollbar { width: 11px; height: 11px; }
 ::-webkit-scrollbar-thumb { background: #313a56; border-radius: 6px; }
 ::-webkit-scrollbar-thumb:hover { background: #3c466a; }

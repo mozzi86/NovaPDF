@@ -124,6 +124,26 @@
     </div>
   </div>
 
+  <!-- Compare modal -->
+  <div id="compare-modal" class="modal hidden">
+    <div class="modal-box compare-box">
+      <div class="compare-bar">
+        <h3>PDF vergleichen</h3>
+        <div class="sep"></div>
+        <button id="cmp-prev" class="ghost" title="Vorherige Seite"><i class="ph ph-caret-left"></i></button>
+        <span id="cmp-label">Seite 1</span>
+        <button id="cmp-next" class="ghost" title="Nächste Seite"><i class="ph ph-caret-right"></i></button>
+        <select id="cmp-mode">
+          <option value="side">Nebeneinander</option>
+          <option value="diff">Differenz</option>
+        </select>
+        <div class="grow"></div>
+        <button id="cmp-close" class="ghost">Schließen</button>
+      </div>
+      <div id="cmp-canvases" class="cmp-canvases"></div>
+    </div>
+  </div>
+
   <!-- Generic prompt modal -->
   <div id="prompt-modal" class="modal hidden">
     <div class="modal-box">
