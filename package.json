@@ -15,7 +15,8 @@
   "dependencies": {
     "@cantoo/pdf-lib": "^2.7.1",
     "@phosphor-icons/web": "^2.1.2",
-    "pdfjs-dist": "^4.7.76"
+    "pdfjs-dist": "^4.7.76",
+    "tesseract.js": "^7.0.0"
   },
   "devDependencies": {
     "electron": "^33.2.0",
@@ -31,7 +32,18 @@
       "main.js",
       "preload.js",
       "renderer/**/*",
-      "vendor/**/*"
+      "vendor/**/*",
+      "!vendor/tessdata"
+    ],
+    "asarUnpack": [
+      "node_modules/tesseract.js/**/*",
+      "node_modules/tesseract.js-core/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "vendor/tessdata",
+        "to": "tessdata"
+      }
     ],
     "win": {
       "target": [

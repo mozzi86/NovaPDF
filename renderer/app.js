@@ -34,6 +34,7 @@ const TOOLS = [
   { id: 'img2pdf', g: 'Konvertieren', icon: 'ph-images', label: 'Bilder zu PDF', desc: 'PNG/JPG in ein PDF wandeln' },
   { id: 'pdf2img', g: 'Konvertieren', icon: 'ph-image', label: 'PDF zu Bildern', desc: 'Jede Seite als PNG/JPG' },
   { id: 'compress', g: 'Konvertieren', icon: 'ph-arrows-in-simple', label: 'Komprimieren', desc: 'Dateigröße reduzieren (Seiten als Bild)' },
+  { id: 'ocr', g: 'Konvertieren', icon: 'ph-scan', label: 'OCR (Texterkennung)', desc: 'Gescanntes PDF durchsuchbar machen' },
 
   { id: 'nup', g: 'Layout', icon: 'ph-grid-four', label: 'Mehrere Seiten pro Blatt', desc: '2 oder 4 Seiten auf ein Blatt (N-up)' },
   { id: 'booklet', g: 'Layout', icon: 'ph-book-open', label: 'Broschüre (Booklet)', desc: 'Seitenfolge für Heftbindung' },
@@ -677,6 +678,7 @@ async function dispatch(id) {
     case 'numbers': if (await ensureDoc()) await opNumbers(); break;
     case 'metadata': if (await ensureDoc()) await opMetadata(); break;
     case 'compress': if (await ensureDoc()) await opCompress(); break;
+    case 'ocr': if (await ensureDoc()) await opOcr(); break;
     case 'nup': if (await ensureDoc()) await opNup(); break;
     case 'booklet': if (await ensureDoc()) await opBooklet(); break;
     case 'scale': if (await ensureDoc()) await opScale(); break;
@@ -1062,6 +1064,48 @@ async function opCompress() {
     const res = await window.nova.save({ defaultName: name, bytes, ext: 'pdf' });
     saveResultStatus(res, `Komprimiert: ${fmtBytes(srcSize)} → ${fmtBytes(bytes.length)} (${gain}) — gespeichert`);
   } catch (e) { status('Komprimieren fehlgeschlagen: ' + e.message); }
+}
+
+async function opOcr() {
+  if (!window.nova || !window.nova.ocrPage) { status('OCR ist nur in der Desktop-App verfügbar.'); return; }
+  const total = S.pdfDoc.getPageCount();
+  const a = await showPrompt({ title: 'OCR — Texterkennung (Deutsch + Englisch)', fields: [
+    { key: 'pages', label: 'Seiten (leer = alle)', placeholder: 'z. B. 1-10', hint: `Dokument hat ${total} Seiten. Der erkannte Text wird als unsichtbare Ebene eingebettet — Suchen und Kopieren funktionieren danach. Läuft komplett lokal.` }
+  ] });
+  if (!a) return;
+  const targets = a.pages.trim() ? parseRanges(a.pages, total) : [...Array(total).keys()];
+  if (!targets.length) { status('Keine gültigen Seiten angegeben'); return; }
+  try {
+    const font = await S.pdfDoc.embedFont(StandardFonts.Helvetica);
+    let count = 0;
+    for (let k = 0; k < targets.length; k++) {
+      const i = targets[k];
+      status(`OCR — Seite ${i + 1} wird gelesen (${k + 1}/${targets.length})…`);
+      const page = await S.pdfjs.getPage(i + 1);
+      const vp1 = page.getViewport({ scale: 1 });
+      const sc = Math.min(300 / 72, 4000 / Math.max(vp1.width, vp1.height));
+      const vp = page.getViewport({ scale: sc });
+      const c = el('canvas'); c.width = vp.width; c.height = vp.height;
+      const ctx = c.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height);
+      await page.render({ canvasContext: ctx, viewport: vp }).promise;
+      const blob = await new Promise((r) => c.toBlob(r, 'image/png'));
+      const res = await window.nova.ocrPage({ png: await blobToBytes(blob) });
+      if (!res.ok) { status('OCR fehlgeschlagen: ' + res.error); return; }
+      const p = S.pdfDoc.getPage(i);
+      const { width, height } = p.getSize();
+      const R = pageRot(p);
+      for (const w of res.words) {
+        if (!w.text || !w.text.trim() || w.conf < 40) continue;
+        const size = Math.max(4, (w.bbox.y1 - w.bbox.y0) / sc);
+        const pt = vpPoint(w.bbox.x0 / sc, w.bbox.y1 / sc, width, height, R);
+        // opacity 0: unsichtbar, aber für Suche/Kopieren/Screenreader vorhanden
+        drawTextSafe(p, w.text, { x: pt.x, y: pt.y, size, font, opacity: 0, rotate: degrees(R) });
+        count++;
+      }
+    }
+    await refresh();
+    status(`OCR fertig — ${count} Wörter als durchsuchbare Ebene eingebettet. Zum Behalten „Speichern" nicht vergessen.`);
+  } catch (e) { status('OCR fehlgeschlagen: ' + e.message); }
 }
 
 async function opProtect() {

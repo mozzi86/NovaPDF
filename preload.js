@@ -5,6 +5,7 @@ contextBridge.exposeInMainWorld('nova', {
   openImageDialog: (opts) => ipcRenderer.invoke('dialog:openImage', opts || {}),
   save: (payload) => ipcRenderer.invoke('dialog:save', payload),
   saveMany: (payload) => ipcRenderer.invoke('dialog:saveMany', payload),
+  ocrPage: (payload) => ipcRenderer.invoke('ocr:page', payload),
   getRecent: () => ipcRenderer.invoke('recent:get'),
   readRecent: (p) => ipcRenderer.invoke('recent:read', p),
   clearRecent: () => ipcRenderer.invoke('recent:clear'),

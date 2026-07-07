@@ -48,4 +48,31 @@ if (fs.existsSync(phSrc)) {
   }
 } else console.warn('!! phosphor icons not found');
 
-console.log('vendor ready ->', vendor);
+// OCR-Sprachdaten (tesseract.js): einmalig herunterladen, danach offline.
+// tessdata_fast ist klein (~2-6 MB pro Sprache) und für Scans völlig ausreichend.
+const https = require('https');
+const tessdata = path.join(vendor, 'tessdata');
+fs.mkdirSync(tessdata, { recursive: true });
+function download(url, dest) {
+  return new Promise((resolve, reject) => {
+    https.get(url, (res) => {
+      if (res.statusCode === 301 || res.statusCode === 302) return download(res.headers.location, dest).then(resolve, reject);
+      if (res.statusCode !== 200) return reject(new Error('HTTP ' + res.statusCode));
+      const file = fs.createWriteStream(dest);
+      res.pipe(file); file.on('finish', () => file.close(resolve)); file.on('error', reject);
+    }).on('error', reject);
+  });
+}
+(async () => {
+  for (const l of ['deu', 'eng']) {
+    const dest = path.join(tessdata, l + '.traineddata.gz');
+    if (fs.existsSync(dest) && fs.statSync(dest).size > 100000) { console.log('tessdata ok:', l); continue; }
+    try {
+      await download(`https://raw.githubusercontent.com/naptha/tessdata/gh-pages/4.0.0_fast/${l}.traineddata.gz`, dest);
+      console.log('tessdata <-', l);
+    } catch (e) {
+      console.warn(`!! tessdata-Download fehlgeschlagen (${l}): ${e.message} — OCR braucht diese Datei; npm run copy-vendor mit Internet wiederholen`);
+    }
+  }
+  console.log('vendor ready ->', vendor);
+})();

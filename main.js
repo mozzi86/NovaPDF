@@ -161,6 +161,34 @@ ipcMain.handle('dialog:saveMany', async (_e, { files, subdir }) => {
   } catch (e) { return { ok: false, error: e.message }; }
 });
 
+// ---- OCR: tesseract.js läuft im Main-Prozess (Node) — dort gibt es fs/wasm
+// ohne CSP-Einschränkungen; die Sprachdaten liegen lokal in vendor/tessdata.
+let ocrWorkerP = null;
+function getOcrWorker() {
+  if (!ocrWorkerP) {
+    const { createWorker } = require('tesseract.js');
+    const langPath = app.isPackaged
+      ? path.join(process.resourcesPath, 'tessdata')
+      : path.join(__dirname, 'vendor', 'tessdata');
+    ocrWorkerP = createWorker(['deu', 'eng'], 1, { langPath, gzip: true, cacheMethod: 'none' });
+  }
+  return ocrWorkerP;
+}
+ipcMain.handle('ocr:page', async (_e, { png }) => {
+  try {
+    const worker = await getOcrWorker();
+    const { data } = await worker.recognize(Buffer.from(png), {}, { text: false, blocks: true });
+    const words = [];
+    for (const b of (data.blocks || []))
+      for (const par of (b.paragraphs || []))
+        for (const line of (par.lines || []))
+          for (const w of (line.words || []))
+            words.push({ text: w.text, conf: w.confidence, bbox: w.bbox });
+    return { ok: true, words };
+  } catch (e) { return { ok: false, error: e.message }; }
+});
+app.on('before-quit', () => { if (ocrWorkerP) ocrWorkerP.then((w) => w.terminate()).catch(() => {}); });
+
 app.whenReady().then(createWindow);
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
 app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
