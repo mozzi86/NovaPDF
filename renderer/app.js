@@ -82,8 +82,16 @@ function showView(v) {
 
 // ---------------- Open / load ----------------
 async function openAndShow(bytes, name) {
-  try { S.pdfDoc = await PDFDocument.load(bytes, { ignoreEncryption: true }); }
+  let doc;
+  try { doc = await PDFDocument.load(bytes, { ignoreEncryption: true }); }
   catch (e) { status('Fehler beim Laden: ' + e.message); return false; }
+  if (doc.isEncrypted) {
+    // pdf-lib kann nicht entschlüsseln — weiterarbeiten würde beim Speichern
+    // eine beschädigte Datei erzeugen. Lieber ehrlich ablehnen.
+    status('Diese PDF ist verschlüsselt (Passwort/Beschränkungen). Bearbeiten würde die Datei beschädigen — bitte zuerst entsperren.');
+    return false;
+  }
+  S.pdfDoc = doc;
   S.annos = {}; S.formValues = {}; S.undo = []; S.watermark = null; S.pageNumbers = null;
   if (name) { S.fileName = name; $('#doc-name').textContent = name; }
   await refresh(true); readForm();
@@ -110,9 +118,12 @@ async function refresh(resetScroll = false) {
 }
 
 // ---------------- Render ----------------
+let renderGen = 0; // guards against interleaved async re-renders (rapid zoom clicks)
 async function renderPages() {
+  const gen = ++renderGen;
   const host = $('#pages'); host.innerHTML = ''; S.vp1 = []; S.textItems = [];
   for (let i = 0; i < S.pdfjs.numPages; i++) {
+    if (gen !== renderGen) return;
     const page = await S.pdfjs.getPage(i + 1);
     const vp1 = page.getViewport({ scale: 1 });
     S.vp1[i] = { w: vp1.width, h: vp1.height };
@@ -207,9 +218,21 @@ async function undo() {
 }
 async function rehydrateImages() { for (const k in S.annos) for (const a of S.annos[k]) if ((a.type === 'image' || a.type === 'sign') && a.dataUrl && !a._img) a._img = await loadImg(a.dataUrl); }
 
+// Shared drag state + ONE window-level mouseup — page wraps are rebuilt on every
+// zoom/refresh, so per-page window listeners would accumulate forever.
+let dragState = null; // { pageIndex, start, cur }
+window.addEventListener('mouseup', () => {
+  if (!dragState) return;
+  const { pageIndex, start, cur } = dragState; dragState = null;
+  if (['highlight', 'rect', 'redact'].includes(S.tool) && start && cur) {
+    const x = Math.min(start.x, cur.x), y = Math.min(start.y, cur.y), w = Math.abs(cur.x - start.x), h = Math.abs(cur.y - start.y);
+    if (w > 3 && h > 3) (S.annos[pageIndex] = S.annos[pageIndex] || []).push({ type: S.tool, x, y, w, h, color: S.color, size: S.size });
+    drawAnnos(pageIndex);
+  }
+});
+
 function attachPageEvents(wrap, pageIndex) {
   const anno = wrap.querySelector('canvas.anno');
-  let drawing = false, start = null, cur = null;
   const toLocal = (e) => { const r = anno.getBoundingClientRect(); return { x: (e.clientX - r.left) / S.zoom, y: (e.clientY - r.top) / S.zoom }; };
   const drawTool = () => ['highlight', 'draw', 'text', 'rect', 'redact'].includes(S.tool);
   const clickTool = () => ['image', 'sign', 'edittext'].includes(S.tool);
@@ -218,16 +241,20 @@ function attachPageEvents(wrap, pageIndex) {
 
   anno.addEventListener('mousedown', (e) => {
     if (!drawTool()) return;
-    pushUndo(); drawing = true; start = toLocal(e); cur = start;
+    pushUndo(); const start = toLocal(e);
+    dragState = { pageIndex, start, cur: start };
     if (S.tool === 'draw') { (S.annos[pageIndex] = S.annos[pageIndex] || []).push({ type: 'draw', color: S.color, size: S.size, points: [start] }); }
     else if (S.tool === 'text') {
       (S.annos[pageIndex] = S.annos[pageIndex] || []).push({ type: 'text', x: start.x, y: start.y, text: 'Text…', color: S.color, size: Math.max(12, S.size * 4) });
-      drawing = false; drawAnnos(pageIndex);
+      dragState = null; drawAnnos(pageIndex);
       const d = wrap.querySelector('.anno-text:last-child'); if (d) { d.focus(); document.execCommand('selectAll', false, null); }
     }
   });
   anno.addEventListener('mousemove', (e) => {
-    if (!drawing) return; cur = toLocal(e); const ctx = anno.getContext('2d'), z = S.zoom;
+    if (!dragState || dragState.pageIndex !== pageIndex) return;
+    dragState.cur = toLocal(e);
+    const { start, cur } = dragState;
+    const ctx = anno.getContext('2d'), z = S.zoom;
     if (S.tool === 'draw') { S.annos[pageIndex][S.annos[pageIndex].length - 1].points.push(cur); drawAnnos(pageIndex); }
     else {
       drawAnnos(pageIndex);
@@ -235,14 +262,6 @@ function attachPageEvents(wrap, pageIndex) {
       if (S.tool === 'highlight') { ctx.globalAlpha = .35; ctx.fillStyle = S.color; ctx.fillRect(x, y, w, h); ctx.globalAlpha = 1; }
       else if (S.tool === 'redact') { ctx.fillStyle = '#000'; ctx.fillRect(x, y, w, h); }
       else if (S.tool === 'rect') { ctx.strokeStyle = S.color; ctx.lineWidth = S.size * z; ctx.strokeRect(x, y, w, h); }
-    }
-  });
-  window.addEventListener('mouseup', () => {
-    if (!drawing) return; drawing = false;
-    if (['highlight', 'rect', 'redact'].includes(S.tool) && start && cur) {
-      const x = Math.min(start.x, cur.x), y = Math.min(start.y, cur.y), w = Math.abs(cur.x - start.x), h = Math.abs(cur.y - start.y);
-      if (w > 3 && h > 3) (S.annos[pageIndex] = S.annos[pageIndex] || []).push({ type: S.tool, x, y, w, h, color: S.color, size: S.size });
-      drawAnnos(pageIndex);
     }
   });
   anno.addEventListener('click', (e) => {
@@ -264,16 +283,18 @@ async function placeImage(pageIndex, pt) {
 function bytesToB64(bytes) { let bin = ''; const a = new Uint8Array(bytes); for (let i = 0; i < a.length; i++) bin += String.fromCharCode(a[i]); return btoa(bin); }
 function dataUrlToBytes(d) { const bin = atob(d.split(',')[1]); const a = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) a[i] = bin.charCodeAt(i); return a; }
 
-// Signature pad
-let signTarget = null;
+// Signature pad — listeners are bound once at module scope, not per opening.
+let signTarget = null, signDrawing = false;
+{
+  const cv = $('#sign-pad'); const ctx = cv.getContext('2d');
+  cv.onmousedown = (e) => { signDrawing = true; ctx.beginPath(); ctx.moveTo(e.offsetX, e.offsetY); };
+  cv.onmousemove = (e) => { if (signDrawing) { ctx.lineTo(e.offsetX, e.offsetY); ctx.stroke(); } };
+  window.addEventListener('mouseup', () => { signDrawing = false; });
+}
 function openSign(pageIndex, pt) {
   signTarget = { pageIndex, pt }; $('#sign-modal').classList.remove('hidden');
   const cv = $('#sign-pad'); const ctx = cv.getContext('2d');
   ctx.clearRect(0, 0, cv.width, cv.height); ctx.lineWidth = 2.5; ctx.lineCap = 'round'; ctx.strokeStyle = '#111';
-  let d = false;
-  cv.onmousedown = (e) => { d = true; ctx.beginPath(); ctx.moveTo(e.offsetX, e.offsetY); };
-  cv.onmousemove = (e) => { if (d) { ctx.lineTo(e.offsetX, e.offsetY); ctx.stroke(); } };
-  window.addEventListener('mouseup', () => { d = false; });
 }
 $('#sign-clear').onclick = () => { const cv = $('#sign-pad'); cv.getContext('2d').clearRect(0, 0, cv.width, cv.height); };
 $('#sign-cancel').onclick = () => $('#sign-modal').classList.add('hidden');
@@ -336,7 +357,32 @@ async function applyForensic({ silent = false } = {}) {
 }
 
 // ---------------- Page operations ----------------
-async function rotatePage(i) { const p = S.pdfDoc.getPage(i); p.setRotation(degrees((p.getRotation().angle + 90) % 360)); await refresh(); status('Seite gedreht'); }
+// Forward transform: PDF user space → viewport (top-left origin) for rotation R.
+function pdfToVp(px, py, W, H, R) {
+  if (R === 90) return { x: py, y: px };
+  if (R === 180) return { x: W - px, y: py };
+  if (R === 270) return { x: H - py, y: W - px };
+  return { x: px, y: H - py };
+}
+function pdfToVpRect(r, W, H, R) {
+  if (R === 90) return { x: r.y, y: r.x, w: r.h, h: r.w };
+  if (R === 180) return { x: W - r.x - r.w, y: r.y, w: r.w, h: r.h };
+  if (R === 270) return { x: H - r.y - r.h, y: W - r.x - r.w, w: r.h, h: r.w };
+  return { x: r.x, y: H - r.y - r.h, w: r.w, h: r.h };
+}
+async function rotatePage(i) {
+  const p = S.pdfDoc.getPage(i);
+  const oldR = pageRot(p), newR = (oldR + 90) % 360;
+  p.setRotation(degrees(newR));
+  // Bestehende Annotationen in die Koordinaten der neuen Ansicht mitdrehen.
+  const { width: W, height: H } = p.getSize();
+  for (const a of (S.annos[i] || [])) {
+    if (a.points) a.points = a.points.map((pt) => { const q = vpPoint(pt.x, pt.y, W, H, oldR); return pdfToVp(q.x, q.y, W, H, newR); });
+    else if (a.type === 'text' || a.type === 'image' || a.type === 'sign') { const q = vpPoint(a.x, a.y, W, H, oldR); const v = pdfToVp(q.x, q.y, W, H, newR); a.x = v.x; a.y = v.y; }
+    else { const r = vpRect(a, W, H, oldR); const v = pdfToVpRect(r, W, H, newR); a.x = v.x; a.y = v.y; a.w = v.w; a.h = v.h; }
+  }
+  await refresh(); status('Seite gedreht');
+}
 async function deletePage(i) {
   if (S.pdfDoc.getPageCount() <= 1) { status('Letzte Seite kann nicht gelöscht werden'); return; }
   S.pdfDoc.removePage(i); remapAnnos((idx) => (idx === i ? null : idx > i ? idx - 1 : idx)); await refresh(); status('Seite gelöscht');
@@ -393,6 +439,32 @@ function applyFormValues(doc) {
 }
 
 // ---------------- Bake + export ----------------
+// Annotations are captured in pdf.js viewport coordinates (top-left origin,
+// rotation-aware). pdf-lib draws in unrotated PDF user space — these helpers
+// invert the viewport transform for /Rotate 0/90/180/270.
+const pageRot = (page) => ((page.getRotation().angle % 360) + 360) % 360;
+function vpPoint(vx, vy, W, H, R) {
+  if (R === 90) return { x: vy, y: vx };
+  if (R === 180) return { x: W - vx, y: vy };
+  if (R === 270) return { x: W - vy, y: H - vx };
+  return { x: vx, y: H - vy };
+}
+function vpRect(r, W, H, R) {
+  if (R === 90) return { x: r.y, y: r.x, w: r.h, h: r.w };
+  if (R === 180) return { x: W - r.x - r.w, y: r.y, w: r.w, h: r.h };
+  if (R === 270) return { x: W - r.y - r.h, y: H - r.x - r.w, w: r.h, h: r.w };
+  return { x: r.x, y: H - r.y - r.h, w: r.w, h: r.h };
+}
+// Standard-Helvetica ist WinAnsi-kodiert — Zeichen außerhalb (Pfeile, Emojis)
+// dürfen den Export nicht crashen.
+function drawTextSafe(page, text, opts) {
+  try { page.drawText(text, opts); }
+  catch {
+    const cleaned = [...String(text)].map((ch) => (ch.charCodeAt(0) <= 0xff ? ch : '?')).join('');
+    try { page.drawText(cleaned, opts); } catch {}
+  }
+}
+
 async function buildExport({ flatten = false } = {}) {
   const doc = await PDFDocument.load(S.bytes.slice(0), { ignoreEncryption: true });
   applyFormValues(doc);
@@ -400,49 +472,68 @@ async function buildExport({ flatten = false } = {}) {
   const pages = doc.getPages();
   for (let i = 0; i < pages.length; i++) {
     const page = pages[i], { width, height } = page.getSize();
+    const R = pageRot(page);
+    const dw = R % 180 ? height : width, dh = R % 180 ? width : height; // displayed dims
     for (const a of (S.annos[i] || [])) {
-      if (a.type === 'highlight') page.drawRectangle({ x: a.x, y: height - a.y - a.h, width: a.w, height: a.h, color: hexToRgb(a.color), opacity: .35 });
-      else if (a.type === 'rect') page.drawRectangle({ x: a.x, y: height - a.y - a.h, width: a.w, height: a.h, borderColor: hexToRgb(a.color), borderWidth: a.size, opacity: 0 });
-      else if (a.type === 'redact') page.drawRectangle({ x: a.x, y: height - a.y - a.h, width: a.w, height: a.h, color: rgb(0, 0, 0) });
-      else if (a.type === 'cover') page.drawRectangle({ x: a.x, y: height - a.y - a.h, width: a.w, height: a.h, color: rgb(1, 1, 1) });
-      else if (a.type === 'draw') for (let k = 1; k < a.points.length; k++) { const p0 = a.points[k - 1], p1 = a.points[k]; page.drawLine({ start: { x: p0.x, y: height - p0.y }, end: { x: p1.x, y: height - p1.y }, thickness: a.size, color: hexToRgb(a.color) }); }
-      else if (a.type === 'text') page.drawText(a.text || '', { x: a.x, y: height - a.y - a.size, size: a.size, font, color: hexToRgb(a.color) });
-      else if (a.type === 'image' || a.type === 'sign') { const raw = dataUrlToBytes(a.dataUrl); const emb = a.dataUrl.startsWith('data:image/png') ? await doc.embedPng(raw) : await doc.embedJpg(raw); page.drawImage(emb, { x: a.x, y: height - a.y - a.h, width: a.w, height: a.h }); }
+      if (a.type === 'highlight') { const r = vpRect(a, width, height, R); page.drawRectangle({ x: r.x, y: r.y, width: r.w, height: r.h, color: hexToRgb(a.color), opacity: .35 }); }
+      else if (a.type === 'rect') { const r = vpRect(a, width, height, R); page.drawRectangle({ x: r.x, y: r.y, width: r.w, height: r.h, borderColor: hexToRgb(a.color), borderWidth: a.size, opacity: 0 }); }
+      else if (a.type === 'redact') { const r = vpRect(a, width, height, R); page.drawRectangle({ x: r.x, y: r.y, width: r.w, height: r.h, color: rgb(0, 0, 0) }); }
+      else if (a.type === 'cover') { const r = vpRect(a, width, height, R); page.drawRectangle({ x: r.x, y: r.y, width: r.w, height: r.h, color: rgb(1, 1, 1) }); }
+      else if (a.type === 'draw') for (let k = 1; k < a.points.length; k++) {
+        const p0 = vpPoint(a.points[k - 1].x, a.points[k - 1].y, width, height, R);
+        const p1 = vpPoint(a.points[k].x, a.points[k].y, width, height, R);
+        page.drawLine({ start: p0, end: p1, thickness: a.size, color: hexToRgb(a.color) });
+      }
+      else if (a.type === 'text') {
+        const p = vpPoint(a.x, a.y + a.size, width, height, R);
+        drawTextSafe(page, a.text || '', { x: p.x, y: p.y, size: a.size, font, color: hexToRgb(a.color), rotate: degrees(R) });
+      }
+      else if (a.type === 'image' || a.type === 'sign') {
+        const raw = dataUrlToBytes(a.dataUrl); const emb = a.dataUrl.startsWith('data:image/png') ? await doc.embedPng(raw) : await doc.embedJpg(raw);
+        const p = vpPoint(a.x, a.y + a.h, width, height, R); // displayed bottom-left corner
+        page.drawImage(emb, { x: p.x, y: p.y, width: a.w, height: a.h, rotate: degrees(R) });
+      }
     }
     if (S.watermark) {
-      const t = S.watermark.text, fs = Math.max(28, width / (t.length * 0.5));
-      page.drawText(t, { x: width * 0.12, y: height * 0.42, size: fs, font, color: rgb(0.5, 0.5, 0.55), opacity: 0.22, rotate: degrees(38) });
+      const t = S.watermark.text, fsz = Math.max(28, dw / (t.length * 0.5));
+      const p = vpPoint(dw * 0.12, dh * 0.58, width, height, R);
+      drawTextSafe(page, t, { x: p.x, y: p.y, size: fsz, font, color: rgb(0.5, 0.5, 0.55), opacity: 0.22, rotate: degrees(R + 38) });
     }
     if (S.pageNumbers) {
       const label = S.pageNumbers.withTotal ? `${i + 1} / ${pages.length}` : `${i + 1}`;
       const w = font.widthOfTextAtSize(label, 10);
-      page.drawText(label, { x: (width - w) / 2, y: 22, size: 10, font, color: rgb(0.35, 0.4, 0.5) });
+      const p = vpPoint((dw - w) / 2, dh - 22, width, height, R);
+      drawTextSafe(page, label, { x: p.x, y: p.y, size: 10, font, color: rgb(0.35, 0.4, 0.5), rotate: degrees(R) });
     }
   }
   if (flatten) { try { doc.getForm().flatten(); } catch {} }
   return await doc.save();
 }
 
+const saveResultStatus = (res, okMsg) => status(res.ok ? okMsg + ': ' + res.path : (res.error ? 'Fehler beim Speichern: ' + res.error : 'Abgebrochen'));
+
 async function saveAs(kind) {
   if (!S.pdfDoc) { status('Kein Dokument geöffnet'); return; }
   closeMenus();
-  if (kind === 'forensic') {
-    const did = await applyForensic({ silent: true });
-    if (!did) { status('Keine Schwärzungen/Bearbeitungen — speichere als normales PDF.'); }
-    const name = S.fileName.replace(/\.pdf$/i, '') + '-forensisch.pdf';
-    const res = await window.nova.save({ defaultName: name, bytes: await buildExport({ flatten: true }), ext: 'pdf' });
-    status(res.ok ? 'Forensisch gespeichert: ' + res.path : 'Abgebrochen');
-    return;
-  }
-  if (kind === 'pdf' || kind === 'flat') {
-    status('Speichern…');
-    const bytes = await buildExport({ flatten: kind === 'flat' });
-    const name = kind === 'flat' ? S.fileName.replace(/\.pdf$/i, '') + '-fixiert.pdf' : S.fileName;
-    const res = await window.nova.save({ defaultName: name, bytes, ext: 'pdf' });
-    status(res.ok ? 'Gespeichert: ' + res.path : 'Abgebrochen');
-  } else if (kind === 'png' || kind === 'jpg') {
-    await exportImages(kind);
-  }
+  try {
+    if (kind === 'forensic') {
+      const did = await applyForensic({ silent: true });
+      if (!did) { status('Keine Schwärzungen/Bearbeitungen — speichere als normales PDF.'); }
+      const name = S.fileName.replace(/\.pdf$/i, '') + '-forensisch.pdf';
+      const res = await window.nova.save({ defaultName: name, bytes: await buildExport({ flatten: true }), ext: 'pdf' });
+      saveResultStatus(res, 'Forensisch gespeichert');
+      return;
+    }
+    if (kind === 'pdf' || kind === 'flat') {
+      status('Speichern…');
+      const bytes = await buildExport({ flatten: kind === 'flat' });
+      const name = kind === 'flat' ? S.fileName.replace(/\.pdf$/i, '') + '-fixiert.pdf' : S.fileName;
+      const res = await window.nova.save({ defaultName: name, bytes, ext: 'pdf' });
+      saveResultStatus(res, 'Gespeichert');
+    } else if (kind === 'png' || kind === 'jpg') {
+      await exportImages(kind);
+    }
+  } catch (e) { status('Fehler beim Speichern: ' + e.message); }
 }
 
 async function exportImages(fmt) {
@@ -459,7 +550,7 @@ async function exportImages(fmt) {
     files.push({ name: `${base}-${String(i).padStart(3, '0')}.${fmt}`, bytes: await blobToBytes(blob) });
   }
   const res = await window.nova.saveMany({ files, subdir: base + '-Bilder' });
-  status(res.ok ? `${res.count} Bilder gespeichert: ${res.path}` : 'Abgebrochen');
+  status(res.ok ? `${res.count} Bilder gespeichert: ${res.path}` : (res.error ? 'Fehler beim Speichern: ' + res.error : 'Abgebrochen'));
 }
 
 async function flatten() {
@@ -634,11 +725,14 @@ async function opMetadata() {
 async function opUnlock() {
   const files = await window.nova.openDialog({ multi: false }); if (!files[0]) return;
   const ok = await openAndShow(files[0].bytes, files[0].name);
-  if (ok) status('Geladen. Beim Speichern werden Bearbeitungs-Beschränkungen entfernt. (Passwortgeschützte PDFs benötigen das Passwort.)');
+  // Echte Verschlüsselung (auch reine Berechtigungs-Sperren nutzen /Encrypt)
+  // lehnt openAndShow ab — alles andere wird beim Speichern neu geschrieben.
+  if (ok) status('Geladen. Beim Speichern wird die Datei ohne Sperr-Flags neu geschrieben.');
 }
 
 // ---------------- Toolbar / menus ----------------
-function setTool(t) { S.tool = t; document.querySelectorAll('#tool-buttons button').forEach((b) => b.classList.toggle('active', b.dataset.tool === t)); refreshPE(); status('Werkzeug: ' + (TOOLS.find((x) => x.id === t)?.label || t)); }
+const TOOL_LABELS = { cursor: 'Auswählen', highlight: 'Markieren', draw: 'Zeichnen', text: 'Textfeld', rect: 'Rechteck', redact: 'Schwärzen', edittext: 'Text bearbeiten', image: 'Bild einfügen', sign: 'Unterschrift' };
+function setTool(t) { S.tool = t; document.querySelectorAll('#tool-buttons button').forEach((b) => b.classList.toggle('active', b.dataset.tool === t)); refreshPE(); status('Werkzeug: ' + (TOOL_LABELS[t] || TOOLS.find((x) => x.id === t)?.label || t)); }
 function zoom(d) { S.zoom = Math.min(4, Math.max(0.25, +(S.zoom + d).toFixed(2))); renderPages(); }
 function zoomFit() { if (!S.vp1[0]) return; S.zoom = +(($('#viewer').clientWidth - 64) / S.vp1[0].w).toFixed(2); renderPages(); }
 function closeMenus() { document.querySelectorAll('.menu').forEach((m) => m.classList.add('hidden')); }
@@ -677,7 +771,11 @@ async function renderRecent() {
   wrap.classList.remove('hidden'); host.innerHTML = '';
   for (const r of list) {
     const b = el('button', 'rfile');
-    b.innerHTML = `<i class="ph ph-file-pdf"></i><div class="meta"><div class="rname">${r.name}</div><div class="rtime">${fmtTime(r.time)}</div></div>`;
+    // Dateinamen stammen aus dem Dateisystem — nie als HTML interpretieren.
+    const ico = el('i', 'ph ph-file-pdf'), meta = el('div', 'meta');
+    const rname = el('div', 'rname'); rname.textContent = r.name;
+    const rtime = el('div', 'rtime'); rtime.textContent = fmtTime(r.time);
+    meta.append(rname, rtime); b.append(ico, meta);
     b.onclick = async () => {
       const res = await window.nova.readRecent(r.path);
       if (!res || res.missing) { status('Datei nicht gefunden: ' + r.path); renderRecent(); return; }

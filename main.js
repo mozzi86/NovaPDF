@@ -19,6 +19,7 @@ const Recent = {
 };
 
 function createWindow() {
+  const iconPath = path.join(__dirname, 'build', process.platform === 'darwin' ? 'icon.icns' : 'icon.ico');
   mainWindow = new BrowserWindow({
     width: 1400,
     height: 900,
@@ -26,13 +27,18 @@ function createWindow() {
     minHeight: 600,
     backgroundColor: '#1f2430',
     title: 'NovaPDF',
-    icon: path.join(__dirname, 'build', 'icon.ico'),
+    ...(fs.existsSync(iconPath) ? { icon: iconPath } : {}),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
-      nodeIntegration: false
+      nodeIntegration: false,
+      sandbox: true
     }
   });
+
+  // The renderer parses untrusted PDFs — never let it navigate away or open windows.
+  mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  mainWindow.webContents.on('will-navigate', (e) => e.preventDefault());
 
   mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
   buildMenu();
@@ -100,12 +106,17 @@ ipcMain.handle('dialog:open', async (_e, { multi } = {}) => {
   });
   if (res.canceled) return [];
   res.filePaths.forEach((p) => Recent.add(p));
-  return res.filePaths.map((p) => ({ name: path.basename(p), path: p, bytes: fs.readFileSync(p) }));
+  return res.filePaths
+    .map((p) => { try { return { name: path.basename(p), path: p, bytes: fs.readFileSync(p) }; } catch { return null; } })
+    .filter(Boolean);
 });
 
 // Recent files
 ipcMain.handle('recent:get', () => Recent.get().filter((r) => { try { return fs.existsSync(r.path); } catch { return false; } }));
 ipcMain.handle('recent:read', (_e, p) => {
+  // Only paths that are actually on the recent list — the renderer must not
+  // be able to read arbitrary files.
+  if (!Recent.get().some((r) => r.path === p)) return { missing: true };
   try { if (!fs.existsSync(p)) return { missing: true }; Recent.add(p); return { name: path.basename(p), path: p, bytes: fs.readFileSync(p) }; }
   catch (e) { return { missing: true }; }
 });
@@ -130,7 +141,8 @@ ipcMain.handle('dialog:save', async (_e, { defaultName, bytes, ext }) => {
     filters: [{ name: e2.toUpperCase(), extensions: [e2] }]
   });
   if (res.canceled) return { ok: false };
-  fs.writeFileSync(res.filePath, Buffer.from(bytes));
+  try { fs.writeFileSync(res.filePath, Buffer.from(bytes)); }
+  catch (e) { return { ok: false, error: e.message }; }
   return { ok: true, path: res.filePath };
 });
 
@@ -141,10 +153,12 @@ ipcMain.handle('dialog:saveMany', async (_e, { files, subdir }) => {
     properties: ['openDirectory', 'createDirectory']
   });
   if (res.canceled) return { ok: false };
-  let dir = res.filePaths[0];
-  if (subdir) { dir = path.join(dir, subdir); fs.mkdirSync(dir, { recursive: true }); }
-  for (const f of files) fs.writeFileSync(path.join(dir, f.name), Buffer.from(f.bytes));
-  return { ok: true, path: dir, count: files.length };
+  try {
+    let dir = res.filePaths[0];
+    if (subdir) { dir = path.join(dir, subdir); fs.mkdirSync(dir, { recursive: true }); }
+    for (const f of files) fs.writeFileSync(path.join(dir, path.basename(f.name)), Buffer.from(f.bytes));
+    return { ok: true, path: dir, count: files.length };
+  } catch (e) { return { ok: false, error: e.message }; }
 });
 
 app.whenReady().then(createWindow);
