@@ -35,6 +35,11 @@ const TOOLS = [
   { id: 'pdf2img', g: 'Konvertieren', icon: 'ph-image', label: 'PDF zu Bildern', desc: 'Jede Seite als PNG/JPG' },
   { id: 'compress', g: 'Konvertieren', icon: 'ph-arrows-in-simple', label: 'Komprimieren', desc: 'Dateigröße reduzieren (Seiten als Bild)' },
 
+  { id: 'nup', g: 'Layout', icon: 'ph-grid-four', label: 'Mehrere Seiten pro Blatt', desc: '2 oder 4 Seiten auf ein Blatt (N-up)' },
+  { id: 'booklet', g: 'Layout', icon: 'ph-book-open', label: 'Broschüre (Booklet)', desc: 'Seitenfolge für Heftbindung' },
+  { id: 'scale', g: 'Layout', icon: 'ph-frame-corners', label: 'Seiten skalieren', desc: 'Auf A4/A3/A2/A1/A0 bringen' },
+  { id: 'blank', g: 'Layout', icon: 'ph-file-dashed', label: 'Leerseiten entfernen', desc: 'Leere Seiten erkennen & löschen' },
+
   { id: 'edit', g: 'Bearbeiten', icon: 'ph-pencil-simple', label: 'PDF bearbeiten', desc: 'Text & Bilder hinzufügen' },
   { id: 'annotate', g: 'Bearbeiten', icon: 'ph-highlighter', label: 'Kommentieren', desc: 'Markieren, zeichnen, Notizen' },
   { id: 'edittext', g: 'Bearbeiten', icon: 'ph-note-pencil', label: 'Text bearbeiten', desc: 'Vorhandenen Text ändern & ersetzen' },
@@ -610,8 +615,10 @@ async function search(q) {
 }
 
 // ---------------- Generic prompt modal ----------------
+let promptDone = null; // ein offener Prompt zur Zeit — neuer Aufruf bricht den alten sauber ab
 function showPrompt({ title, fields }) {
   return new Promise((resolve) => {
+    if (promptDone) promptDone(false);
     $('#prompt-title').textContent = title;
     const body = $('#prompt-body'); body.innerHTML = '';
     const inputs = {};
@@ -626,10 +633,12 @@ function showPrompt({ title, fields }) {
     const modal = $('#prompt-modal'); modal.classList.remove('hidden');
     const first = body.querySelector('input,select'); if (first) first.focus();
     const done = (ok) => {
+      promptDone = null;
       modal.classList.add('hidden'); $('#prompt-ok').onclick = null; $('#prompt-cancel').onclick = null;
       if (!ok) return resolve(null);
       const out = {}; for (const k in inputs) out[k] = inputs[k].value; resolve(out);
     };
+    promptDone = done;
     $('#prompt-ok').onclick = () => done(true);
     $('#prompt-cancel').onclick = () => done(false);
   });
@@ -668,6 +677,10 @@ async function dispatch(id) {
     case 'numbers': if (await ensureDoc()) await opNumbers(); break;
     case 'metadata': if (await ensureDoc()) await opMetadata(); break;
     case 'compress': if (await ensureDoc()) await opCompress(); break;
+    case 'nup': if (await ensureDoc()) await opNup(); break;
+    case 'booklet': if (await ensureDoc()) await opBooklet(); break;
+    case 'scale': if (await ensureDoc()) await opScale(); break;
+    case 'blank': if (await ensureDoc()) await opBlank(); break;
     case 'protect': if (await ensureDoc()) await opProtect(); break;
     case 'flatten': if (await ensureDoc()) await flatten(); break;
     case 'unlock': await opUnlock(); break;
@@ -875,6 +888,136 @@ async function opMetadata() {
 }
 
 function fmtBytes(n) { return n > 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.round(n / 1024) + ' KB'; }
+
+// ---------------- Layout tools ----------------
+// embedPdf wirft bei Seiten ohne Contents-Stream (z. B. komplett leere Seiten).
+// Vor dem Einbetten bekommen solche Seiten einen unsichtbaren No-op-Inhalt.
+async function bakedForEmbed() {
+  const baked = await buildExport({ flatten: false });
+  let src = await PDFDocument.load(baked.slice(0), { ignoreEncryption: true });
+  let dirty = false;
+  for (const p of src.getPages()) {
+    let has = true; try { has = !!p.node.Contents(); } catch {}
+    if (!has) { p.drawRectangle({ x: 0, y: 0, width: 0.1, height: 0.1, opacity: 0, borderOpacity: 0 }); dirty = true; }
+  }
+  const bytes = dirty ? await src.save() : baked;
+  if (dirty) src = await PDFDocument.load(bytes.slice(0), { ignoreEncryption: true });
+  return { bytes, src };
+}
+async function opNup() {
+  const a = await showPrompt({ title: 'Mehrere Seiten pro Blatt', fields: [
+    { key: 'n', label: 'Seiten pro Blatt', type: 'select', value: '2', options: [
+      { value: '2', label: '2 nebeneinander (Querformat)' }, { value: '4', label: '4 im 2×2-Raster' }
+    ] }
+  ] });
+  if (!a) return;
+  const n = parseInt(a.n, 10);
+  try {
+    status('Layout wird berechnet…');
+    const { bytes: baked, src } = await bakedForEmbed();
+    const out = await PDFDocument.create();
+    const emb = await out.embedPdf(baked.slice(0), src.getPageIndices());
+    const p0 = src.getPage(0).getSize();
+    const sw = n === 2 ? Math.max(p0.width, p0.height) : Math.min(p0.width, p0.height);
+    const sh = n === 2 ? Math.min(p0.width, p0.height) : Math.max(p0.width, p0.height);
+    const cols = 2, rows = n / 2, cw = sw / cols, ch = sh / rows, pad = 12;
+    for (let i = 0; i < emb.length; i += n) {
+      const sheet = out.addPage([sw, sh]);
+      for (let k = 0; k < n && i + k < emb.length; k++) {
+        const e2 = emb[i + k];
+        const sc = Math.min((cw - pad * 2) / e2.width, (ch - pad * 2) / e2.height);
+        const w = e2.width * sc, h = e2.height * sc;
+        const x = (k % cols) * cw + (cw - w) / 2;
+        const y = sh - (Math.floor(k / cols) + 1) * ch + (ch - h) / 2;
+        sheet.drawPage(e2, { x, y, width: w, height: h });
+      }
+    }
+    await openAndShow(await out.save(), S.fileName.replace(/\.pdf$/i, '') + '-' + n + 'up.pdf');
+  } catch (e) { status('N-up fehlgeschlagen: ' + e.message); }
+}
+
+async function opBooklet() {
+  try {
+    status('Broschüre wird erzeugt…');
+    const { bytes: baked, src } = await bakedForEmbed();
+    const total = src.getPageCount();
+    const N = Math.ceil(total / 4) * 4; // auf Vielfaches von 4 auffüllen (leere Plätze)
+    const out = await PDFDocument.create();
+    const emb = await out.embedPdf(baked.slice(0), src.getPageIndices());
+    const p0 = src.getPage(0).getSize();
+    const pw = Math.min(p0.width, p0.height), ph = Math.max(p0.width, p0.height);
+    const order = [];
+    for (let s = 0; s < N / 2; s++) order.push(s % 2 === 0 ? [N - s, s + 1] : [s + 1, N - s]);
+    for (const [l, r] of order) {
+      const sheet = out.addPage([pw * 2, ph]);
+      const place = (no, x0) => {
+        if (no > total) return;
+        const e2 = emb[no - 1];
+        const sc = Math.min(pw / e2.width, ph / e2.height);
+        sheet.drawPage(e2, { x: x0 + (pw - e2.width * sc) / 2, y: (ph - e2.height * sc) / 2, width: e2.width * sc, height: e2.height * sc });
+      };
+      place(l, 0); place(r, pw);
+    }
+    await openAndShow(await out.save(), S.fileName.replace(/\.pdf$/i, '') + '-booklet.pdf');
+    status(`Broschüre: ${order.length} Blattseiten — beidseitig drucken, an kurzer Kante wenden, mittig heften.`);
+  } catch (e) { status('Broschüre fehlgeschlagen: ' + e.message); }
+}
+
+const PAPER = { a4: [595.28, 841.89], a3: [841.89, 1190.55], a2: [1190.55, 1683.78], a1: [1683.78, 2383.94], a0: [2383.94, 3370.39] };
+async function opScale() {
+  const a = await showPrompt({ title: 'Seiten skalieren', fields: [
+    { key: 'fmt', label: 'Zielformat', type: 'select', value: 'a4', options: [
+      { value: 'a4', label: 'A4' }, { value: 'a3', label: 'A3' }, { value: 'a2', label: 'A2' }, { value: 'a1', label: 'A1' }, { value: 'a0', label: 'A0' }
+    ] },
+    { key: 'orient', label: 'Ausrichtung', type: 'select', value: 'auto', options: [
+      { value: 'auto', label: 'Automatisch (wie Original)' }, { value: 'p', label: 'Hochformat' }, { value: 'l', label: 'Querformat' }
+    ], hint: 'Inhalt wird proportional eingepasst und zentriert.' }
+  ] });
+  if (!a) return;
+  try {
+    status('Skalieren…');
+    const { bytes: baked, src } = await bakedForEmbed();
+    const out = await PDFDocument.create();
+    const emb = await out.embedPdf(baked.slice(0), src.getPageIndices());
+    const [fw, fh] = PAPER[a.fmt];
+    for (const e2 of emb) {
+      const landscape = a.orient === 'l' || (a.orient === 'auto' && e2.width > e2.height);
+      const tw = landscape ? Math.max(fw, fh) : Math.min(fw, fh);
+      const th = landscape ? Math.min(fw, fh) : Math.max(fw, fh);
+      const sc = Math.min(tw / e2.width, th / e2.height);
+      const page = out.addPage([tw, th]);
+      page.drawPage(e2, { x: (tw - e2.width * sc) / 2, y: (th - e2.height * sc) / 2, width: e2.width * sc, height: e2.height * sc });
+    }
+    await openAndShow(await out.save(), S.fileName.replace(/\.pdf$/i, '') + '-' + a.fmt.toUpperCase() + '.pdf');
+  } catch (e) { status('Skalieren fehlgeschlagen: ' + e.message); }
+}
+
+async function opBlank() {
+  try {
+    status('Leerseiten werden gesucht…');
+    const blank = [];
+    for (let i = 0; i < S.pdfjs.numPages; i++) {
+      const page = await S.pdfjs.getPage(i + 1);
+      const vp = page.getViewport({ scale: 0.4 });
+      const c = el('canvas'); c.width = vp.width; c.height = vp.height;
+      const ctx = c.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height);
+      await page.render({ canvasContext: ctx, viewport: vp }).promise;
+      const d = ctx.getImageData(0, 0, c.width, c.height).data;
+      let ink = 0;
+      for (let p = 0; p < d.length; p += 4) if (d[p] < 245 || d[p + 1] < 245 || d[p + 2] < 245) ink++;
+      if (ink / (c.width * c.height) < 0.0005) blank.push(i);
+    }
+    if (!blank.length) { status('Keine Leerseiten gefunden.'); return; }
+    if (blank.length >= S.pdfDoc.getPageCount()) { status('Alle Seiten wären leer — nichts entfernt.'); return; }
+    const a = await showPrompt({ title: 'Leerseiten entfernen', fields: [
+      { key: 'go', label: `${blank.length} Leerseite(n) gefunden: Seite ${blank.map((i) => i + 1).join(', ')}`, type: 'select', options: [{ value: 'yes', label: 'Jetzt entfernen' }] }
+    ] });
+    if (!a) return;
+    for (const i of blank.slice().reverse()) S.pdfDoc.removePage(i);
+    remapAnnos((idx) => (blank.includes(idx) ? null : idx - blank.filter((b) => b < idx).length));
+    await refresh(); status(`${blank.length} Leerseite(n) entfernt — ${S.pdfDoc.getPageCount()} übrig`);
+  } catch (e) { status('Leerseiten-Suche fehlgeschlagen: ' + e.message); }
+}
 
 async function opCompress() {
   const a = await showPrompt({ title: 'Komprimieren', fields: [
