@@ -13,8 +13,8 @@
     "dist:all": "node scripts/copy-vendor.js && electron-builder -mw"
   },
   "dependencies": {
+    "@cantoo/pdf-lib": "^2.7.1",
     "@phosphor-icons/web": "^2.1.2",
-    "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^4.7.76"
   },
   "devDependencies": {
@@ -50,7 +50,10 @@
       "target": [
         {
           "target": "dmg",
-          "arch": ["arm64", "x64"]
+          "arch": [
+            "arm64",
+            "x64"
+          ]
         }
       ],
       "category": "public.app-category.productivity",

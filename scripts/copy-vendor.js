@@ -22,8 +22,9 @@ function resolveFirst(candidates) {
   return null;
 }
 
-// pdf-lib UMD bundle
-const pdfLib = resolveFirst(['pdf-lib/dist/pdf-lib.min.js', 'pdf-lib/dist/pdf-lib.js']);
+// pdf-lib UMD bundle — @cantoo/pdf-lib is a drop-in fork (same PDFLib global)
+// that additionally supports writing encrypted PDFs (doc.encrypt()).
+const pdfLib = resolveFirst(['@cantoo/pdf-lib/dist/pdf-lib.min.js', 'pdf-lib/dist/pdf-lib.min.js', 'pdf-lib/dist/pdf-lib.js']);
 if (pdfLib) copy(pdfLib, 'pdf-lib.min.js');
 else console.warn('!! pdf-lib build not found');
 

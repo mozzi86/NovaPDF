@@ -33,6 +33,7 @@ const TOOLS = [
 
   { id: 'img2pdf', g: 'Konvertieren', icon: 'ph-images', label: 'Bilder zu PDF', desc: 'PNG/JPG in ein PDF wandeln' },
   { id: 'pdf2img', g: 'Konvertieren', icon: 'ph-image', label: 'PDF zu Bildern', desc: 'Jede Seite als PNG/JPG' },
+  { id: 'compress', g: 'Konvertieren', icon: 'ph-arrows-in-simple', label: 'Komprimieren', desc: 'Dateigröße reduzieren (Seiten als Bild)' },
 
   { id: 'edit', g: 'Bearbeiten', icon: 'ph-pencil-simple', label: 'PDF bearbeiten', desc: 'Text & Bilder hinzufügen' },
   { id: 'annotate', g: 'Bearbeiten', icon: 'ph-highlighter', label: 'Kommentieren', desc: 'Markieren, zeichnen, Notizen' },
@@ -47,6 +48,7 @@ const TOOLS = [
 
   { id: 'forensic', g: 'Abschließen', icon: 'ph-shield-check', label: 'Forensisch schwärzen', desc: 'Text unter Schwärzungen wirklich entfernen' },
   { id: 'flatten', g: 'Abschließen', icon: 'ph-lock-simple', label: 'PDF fixieren', desc: 'Formular & Notizen sperren' },
+  { id: 'protect', g: 'Abschließen', icon: 'ph-lock', label: 'Passwort schützen', desc: 'PDF mit AES verschlüsseln' },
   { id: 'unlock', g: 'Abschließen', icon: 'ph-lock-key-open', label: 'Beschränkungen entfernen', desc: 'Bearbeitungssperre lösen' }
 ];
 
@@ -346,13 +348,20 @@ async function applyForensic({ silent = false } = {}) {
   const out = await PDFDocument.create();
   for (let i = 0; i < bakedDoc.getPageCount(); i++) {
     if (affected.has(i)) {
-      const { width, height } = bakedDoc.getPage(i).getSize();
-      const page = await rdoc.getPage(i + 1); const vp = page.getViewport({ scale: 200 / 72 });
+      const srcPage = bakedDoc.getPage(i);
+      const { width, height } = srcPage.getSize();
+      const R = pageRot(srcPage);
+      // Rasterbild kommt in Anzeige-Orientierung — Ausgabeseite entsprechend drehen
+      const pw = R % 180 ? height : width, ph = R % 180 ? width : height;
+      const page = await rdoc.getPage(i + 1);
+      const vp1 = page.getViewport({ scale: 1 });
+      const eff = Math.min(200 / 72, 8000 / Math.max(vp1.width, vp1.height)); // Speicherschutz bei Planformaten
+      const vp = page.getViewport({ scale: eff });
       const c = el('canvas'); c.width = vp.width; c.height = vp.height;
       await page.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise;
       const blob = await new Promise((r) => c.toBlob(r, 'image/png'));
       const png = await out.embedPng(await blobToBytes(blob));
-      const pg = out.addPage([width, height]); pg.drawImage(png, { x: 0, y: 0, width, height });
+      const pg = out.addPage([pw, ph]); pg.drawImage(png, { x: 0, y: 0, width: pw, height: ph });
     } else { const [cp] = await out.copyPages(bakedDoc, [i]); out.addPage(cp); }
   }
   S.pdfDoc = await PDFDocument.load(await out.save());
@@ -658,6 +667,8 @@ async function dispatch(id) {
     case 'watermark': if (await ensureDoc()) await opWatermark(); break;
     case 'numbers': if (await ensureDoc()) await opNumbers(); break;
     case 'metadata': if (await ensureDoc()) await opMetadata(); break;
+    case 'compress': if (await ensureDoc()) await opCompress(); break;
+    case 'protect': if (await ensureDoc()) await opProtect(); break;
     case 'flatten': if (await ensureDoc()) await flatten(); break;
     case 'unlock': await opUnlock(); break;
   }
@@ -861,6 +872,82 @@ async function opMetadata() {
   if (!a) return;
   try { S.pdfDoc.setTitle(a.title); S.pdfDoc.setAuthor(a.author); S.pdfDoc.setSubject(a.subject); S.pdfDoc.setKeywords(a.keywords ? a.keywords.split(',').map((s) => s.trim()) : []); } catch {}
   await refresh(); status('Metadaten aktualisiert');
+}
+
+function fmtBytes(n) { return n > 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.round(n / 1024) + ' KB'; }
+
+async function opCompress() {
+  const a = await showPrompt({ title: 'Komprimieren', fields: [
+    { key: 'dpi', label: 'Auflösung', type: 'select', value: '150', options: [
+      { value: '100', label: '100 dpi — kleinste Datei' },
+      { value: '150', label: '150 dpi — guter Kompromiss' },
+      { value: '200', label: '200 dpi — hohe Qualität' }
+    ] },
+    { key: 'q', label: 'JPEG-Qualität', type: 'select', value: '0.75', options: [
+      { value: '0.6', label: 'Niedrig (60 %)' }, { value: '0.75', label: 'Mittel (75 %)' }, { value: '0.85', label: 'Hoch (85 %)' }
+    ], hint: 'Seiten werden zu JPEG-Bildern — Text-/Vektorebene geht verloren (wie ein Scan). Bei Scans 80–90 % kleiner.' }
+  ] });
+  if (!a) return;
+  try {
+    status('Komprimieren — Seiten werden neu berechnet…');
+    const baked = await buildExport({ flatten: false });
+    const srcSize = baked.length;
+    const bakedDoc = await PDFDocument.load(baked.slice(0), { ignoreEncryption: true });
+    const rdoc = await pdfjsLib.getDocument({ data: baked.slice(0) }).promise;
+    const out = await PDFDocument.create();
+    const want = parseFloat(a.dpi) / 72, q = parseFloat(a.q);
+    for (let i = 0; i < rdoc.numPages; i++) {
+      const srcPage = bakedDoc.getPage(i);
+      const { width, height } = srcPage.getSize();
+      const R = pageRot(srcPage);
+      const pw = R % 180 ? height : width, ph = R % 180 ? width : height;
+      const page = await rdoc.getPage(i + 1);
+      const vp1 = page.getViewport({ scale: 1 });
+      const eff = Math.min(want, 8000 / Math.max(vp1.width, vp1.height));
+      const vp = page.getViewport({ scale: eff });
+      const c = el('canvas'); c.width = vp.width; c.height = vp.height;
+      const ctx = c.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height);
+      await page.render({ canvasContext: ctx, viewport: vp }).promise;
+      const blob = await new Promise((r) => c.toBlob(r, 'image/jpeg', q));
+      const jpg = await out.embedJpg(await blobToBytes(blob));
+      const pg = out.addPage([pw, ph]); pg.drawImage(jpg, { x: 0, y: 0, width: pw, height: ph });
+      status(`Komprimieren — Seite ${i + 1}/${rdoc.numPages}…`);
+    }
+    const bytes = await out.save();
+    const name = S.fileName.replace(/\.pdf$/i, '') + '-komprimiert.pdf';
+    const gain = srcSize > bytes.length ? `−${Math.round((1 - bytes.length / srcSize) * 100)} %` : 'keine Ersparnis';
+    const res = await window.nova.save({ defaultName: name, bytes, ext: 'pdf' });
+    saveResultStatus(res, `Komprimiert: ${fmtBytes(srcSize)} → ${fmtBytes(bytes.length)} (${gain}) — gespeichert`);
+  } catch (e) { status('Komprimieren fehlgeschlagen: ' + e.message); }
+}
+
+async function opProtect() {
+  const a = await showPrompt({ title: 'Passwort schützen', fields: [
+    { key: 'pw', label: 'Passwort zum Öffnen', type: 'password' },
+    { key: 'pw2', label: 'Passwort wiederholen', type: 'password' },
+    { key: 'perm', label: 'Nach dem Öffnen erlaubt', type: 'select', value: 'all', options: [
+      { value: 'all', label: 'Alles (nur Öffnen geschützt)' },
+      { value: 'print', label: 'Nur Drucken' },
+      { value: 'none', label: 'Nur Lesen' }
+    ], hint: 'AES-Verschlüsselung — ohne Passwort lässt sich die Datei nicht öffnen.' }
+  ] });
+  if (!a) return;
+  if (!a.pw) { status('Kein Passwort angegeben'); return; }
+  if (a.pw !== a.pw2) { status('Passwörter stimmen nicht überein'); return; }
+  try {
+    status('Verschlüsseln…');
+    const bytes = await buildExport({ flatten: false });
+    const doc = await PDFDocument.load(bytes.slice(0), { ignoreEncryption: true });
+    if (typeof doc.encrypt !== 'function') { status('Diese pdf-lib-Version unterstützt keine Verschlüsselung (npm install nötig).'); return; }
+    const permissions = a.perm === 'all'
+      ? { printing: 'highResolution', modifying: true, copying: true, annotating: true, fillingForms: true }
+      : a.perm === 'print' ? { printing: 'highResolution' } : {};
+    await doc.encrypt({ userPassword: a.pw, ownerPassword: a.pw, permissions });
+    const out = await doc.save();
+    const name = S.fileName.replace(/\.pdf$/i, '') + '-geschuetzt.pdf';
+    const res = await window.nova.save({ defaultName: name, bytes: out, ext: 'pdf' });
+    saveResultStatus(res, 'Verschlüsselt gespeichert');
+  } catch (e) { status('Verschlüsseln fehlgeschlagen: ' + e.message); }
 }
 
 async function opUnlock() {
