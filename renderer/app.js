@@ -11,7 +11,8 @@ const S = {
   pdfDoc: null, bytes: null, pdfjs: null,
   zoom: 1.0, tool: 'cursor', color: '#ffd400', size: 3,
   annos: {}, formValues: {}, vp1: [], textItems: [], fileName: 'dokument.pdf',
-  selected: 0, undo: [], watermark: null, pageNumbers: null, stamp: null
+  selected: 0, undo: [], watermark: null, pageNumbers: null, stamp: null,
+  sel: null // aktuell ausgewählte Annotation: { page, anno }
 };
 
 const $ = (s) => document.querySelector(s);
@@ -196,6 +197,33 @@ function selectPage(i) {
 }
 
 // ---------------- Annotations ----------------
+// Umriss (in Seiten-Koordinaten) einer Annotation — für Auswahl-Rahmen & Treffertest
+function annoBBox(a) {
+  if (a.type === 'check') return { x: a.x - a.s / 2, y: a.y - a.s / 2, w: a.s, h: a.s };
+  if (a.type === 'draw') {
+    let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+    for (const p of a.points) { x0 = Math.min(x0, p.x); y0 = Math.min(y0, p.y); x1 = Math.max(x1, p.x); y1 = Math.max(y1, p.y); }
+    return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+  }
+  if (a.type === 'text') return { x: a.x, y: a.y, w: Math.max(20, (a.text || '').length * a.size * 0.5), h: a.size * 1.3 };
+  return { x: a.x, y: a.y, w: a.w, h: a.h }; // rect, highlight, redact, cover, image, sign
+}
+function moveAnno(a, dx, dy) {
+  if (a.type === 'draw') a.points = a.points.map((p) => ({ x: p.x + dx, y: p.y + dy }));
+  else { a.x += dx; a.y += dy; }
+}
+// Oberste Annotation unter einem Punkt (cover-Helfer werden übersprungen)
+function annoAt(pageIndex, pt) {
+  const list = S.annos[pageIndex] || [];
+  for (let i = list.length - 1; i >= 0; i--) {
+    const a = list[i]; if (a.type === 'cover') continue;
+    const b = annoBBox(a), pad = 5;
+    if (pt.x >= b.x - pad && pt.x <= b.x + b.w + pad && pt.y >= b.y - pad && pt.y <= b.y + b.h + pad) return a;
+  }
+  return null;
+}
+function clearSel() { if (S.sel) { const p = S.sel.page; S.sel = null; drawAnnos(p); } }
+
 function drawAnnos(pageIndex) {
   const wrap = document.querySelector(`.page-wrap[data-page="${pageIndex}"]`); if (!wrap) return;
   const anno = wrap.querySelector('canvas.anno'); const overlay = wrap.querySelector('.overlay');
@@ -221,11 +249,37 @@ function drawAnnos(pageIndex) {
     else if ((a.type === 'image' || a.type === 'sign') && a._img) { ctx.drawImage(a._img, a.x * z, a.y * z, a.w * z, a.h * z); }
     else if (a.type === 'text') {
       const d = el('div', 'anno-text'); d.contentEditable = 'true'; d.textContent = a.text;
+      d.__anno = a;
       d.style.left = a.x * z + 'px'; d.style.top = a.y * z + 'px'; d.style.color = a.color; d.style.fontSize = a.size * z + 'px';
       d.oninput = () => { a.text = d.textContent; };
       d.onblur = () => { if (!a.text.trim()) removeAnno(pageIndex, a); };
+      // Mit dem Pfeil-Werkzeug: ziehen = verschieben, Doppelklick = bearbeiten.
+      d.addEventListener('mousedown', (e) => {
+        if (S.tool !== 'cursor') return; // Text-/Bearbeiten-Werkzeug: normal tippen
+        e.preventDefault();
+        S.sel = { page: pageIndex, anno: a };
+        const sx = e.clientX, sy = e.clientY, ax = a.x, ay = a.y; let moved = false;
+        const mv = (ev) => { if (!moved) { pushUndo(); moved = true; } a.x = ax + (ev.clientX - sx) / S.zoom; a.y = ay + (ev.clientY - sy) / S.zoom; drawAnnos(pageIndex); };
+        const up = () => { window.removeEventListener('mousemove', mv); window.removeEventListener('mouseup', up); };
+        window.addEventListener('mousemove', mv); window.addEventListener('mouseup', up);
+      });
+      d.addEventListener('dblclick', () => { d.focus(); });
       overlay.appendChild(d);
     }
+  }
+  // Auswahl-Rahmen der ausgewählten Annotation
+  if (S.sel && S.sel.page === pageIndex) {
+    const a = S.sel.anno;
+    let bx, by, bw, bh;
+    if (a.type === 'text') {
+      const d = [...overlay.querySelectorAll('.anno-text')].find((n) => n.__anno === a);
+      if (d) { bx = d.offsetLeft; by = d.offsetTop; bw = d.offsetWidth; bh = d.offsetHeight; }
+    }
+    if (bx === undefined) { const b = annoBBox(a); bx = b.x * z; by = b.y * z; bw = b.w * z; bh = b.h * z; }
+    ctx.save();
+    ctx.strokeStyle = '#4d8dff'; ctx.lineWidth = 1.5; ctx.setLineDash([5, 3]);
+    ctx.strokeRect(bx - 5, by - 5, bw + 10, bh + 10);
+    ctx.restore();
   }
 }
 function removeAnno(p, a) { S.annos[p] = (S.annos[p] || []).filter((x) => x !== a); drawAnnos(p); }
@@ -234,6 +288,7 @@ function serializeAnnos() { const o = {}; for (const k in S.annos) o[k] = S.anno
 async function undo() {
   const snap = S.undo.pop(); if (!snap) { status('Nichts rückgängig zu machen'); return; }
   const d = JSON.parse(snap); S.annos = d.annos || {}; S.formValues = d.forms || {};
+  S.sel = null; // Auswahl zeigt sonst auf ein nicht mehr existierendes Objekt
   await rehydrateImages();
   document.querySelectorAll('.page-wrap').forEach((w) => drawAnnos(+w.dataset.page));
   status('Rückgängig');
@@ -245,7 +300,9 @@ async function rehydrateImages() { for (const k in S.annos) for (const a of S.an
 let dragState = null; // { pageIndex, start, cur }
 window.addEventListener('mouseup', () => {
   if (!dragState) return;
-  const { pageIndex, start, cur } = dragState; dragState = null;
+  const { pageIndex, start, cur, mode } = dragState; dragState = null;
+  document.querySelectorAll('.page-wrap canvas.anno').forEach((c) => (c.style.cursor = ''));
+  if (mode === 'move') return; // Verschieben wurde live erledigt
   if (['highlight', 'rect', 'redact'].includes(S.tool) && start && cur) {
     const x = Math.min(start.x, cur.x), y = Math.min(start.y, cur.y), w = Math.abs(cur.x - start.x), h = Math.abs(cur.y - start.y);
     if (w > 3 && h > 3) (S.annos[pageIndex] = S.annos[pageIndex] || []).push({ type: S.tool, x, y, w, h, color: S.color, size: S.size });
@@ -258,10 +315,20 @@ function attachPageEvents(wrap, pageIndex) {
   const toLocal = (e) => { const r = anno.getBoundingClientRect(); return { x: (e.clientX - r.left) / S.zoom, y: (e.clientY - r.top) / S.zoom }; };
   const drawTool = () => ['highlight', 'draw', 'text', 'rect', 'redact'].includes(S.tool);
   const clickTool = () => ['image', 'sign', 'edittext', 'check'].includes(S.tool);
-  const setPE = () => { anno.style.pointerEvents = (drawTool() || clickTool()) ? 'auto' : 'none'; };
+  // Pfeil-Werkzeug ('cursor') braucht die Canvas ebenfalls, um Elemente zu greifen
+  const setPE = () => { anno.style.pointerEvents = (drawTool() || clickTool() || S.tool === 'cursor') ? 'auto' : 'none'; };
   setPE(); wrap._setPE = setPE;
 
   anno.addEventListener('mousedown', (e) => {
+    // Auswählen & Verschieben mit dem Pfeil-Werkzeug
+    if (S.tool === 'cursor') {
+      const pt = toLocal(e);
+      const found = annoAt(pageIndex, pt);
+      S.sel = found ? { page: pageIndex, anno: found } : null;
+      drawAnnos(pageIndex);
+      if (found) { dragState = { pageIndex, mode: 'move', anno: found, last: pt, moved: false }; anno.style.cursor = 'grabbing'; }
+      return;
+    }
     if (!drawTool()) return;
     pushUndo(); const start = toLocal(e);
     dragState = { pageIndex, start, cur: start };
@@ -274,6 +341,14 @@ function attachPageEvents(wrap, pageIndex) {
   });
   anno.addEventListener('mousemove', (e) => {
     if (!dragState || dragState.pageIndex !== pageIndex) return;
+    if (dragState.mode === 'move') {
+      const pt = toLocal(e);
+      const dx = pt.x - dragState.last.x, dy = pt.y - dragState.last.y;
+      if (!dragState.moved) { pushUndo(); dragState.moved = true; }
+      moveAnno(dragState.anno, dx, dy); dragState.last = pt;
+      drawAnnos(pageIndex);
+      return;
+    }
     dragState.cur = toLocal(e);
     const { start, cur } = dragState;
     const ctx = anno.getContext('2d'), z = S.zoom;
@@ -1195,7 +1270,14 @@ async function opUnlock() {
 
 // ---------------- Toolbar / menus ----------------
 const TOOL_LABELS = { cursor: 'Auswählen', highlight: 'Markieren', draw: 'Zeichnen', text: 'Textfeld', rect: 'Rechteck', redact: 'Schwärzen', check: 'Grüner Haken', edittext: 'Text bearbeiten', image: 'Bild einfügen', sign: 'Unterschrift' };
-function setTool(t) { S.tool = t; document.querySelectorAll('#tool-buttons button').forEach((b) => b.classList.toggle('active', b.dataset.tool === t)); refreshPE(); status('Werkzeug: ' + (TOOL_LABELS[t] || TOOLS.find((x) => x.id === t)?.label || t)); }
+function setTool(t) {
+  const prev = S.tool; S.tool = t;
+  if (t !== 'cursor' && S.sel) { const p = S.sel.page; S.sel = null; drawAnnos(p); } // Auswahl beim Wechsel aufheben
+  document.querySelectorAll('#tool-buttons button').forEach((b) => b.classList.toggle('active', b.dataset.tool === t));
+  refreshPE();
+  const hint = t === 'cursor' ? ' — Element anklicken zum Auswählen, ziehen zum Verschieben, ⌫ löscht' : '';
+  status('Werkzeug: ' + (TOOL_LABELS[t] || TOOLS.find((x) => x.id === t)?.label || t) + hint);
+}
 function zoom(d) { S.zoom = Math.min(4, Math.max(0.25, +(S.zoom + d).toFixed(2))); renderPages(); }
 function zoomFit() { if (!S.vp1[0]) return; S.zoom = +(($('#viewer').clientWidth - 64) / S.vp1[0].w).toFixed(2); renderPages(); }
 function closeMenus() { document.querySelectorAll('.menu').forEach((m) => m.classList.add('hidden')); }
@@ -1267,6 +1349,18 @@ function bind() {
   $('#cmp-next').onclick = () => { if (CMP && CMP.page < CMP.n - 1) { CMP.page++; renderCompare(); } };
   $('#cmp-mode').onchange = () => renderCompare();
   $('#cmp-close').onclick = () => { $('#compare-modal').classList.add('hidden'); CMP = null; status('Bereit'); };
+  // Entf/Backspace löscht die ausgewählte Annotation (nicht beim Tippen in Feldern)
+  window.addEventListener('keydown', (e) => {
+    if (e.key !== 'Delete' && e.key !== 'Backspace') return;
+    if (!S.sel) return;
+    const t = document.activeElement;
+    if (t && (t.isContentEditable || t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT')) return;
+    e.preventDefault();
+    pushUndo();
+    const p = S.sel.page, a = S.sel.anno; S.sel = null;
+    removeAnno(p, a);
+    status('Element gelöscht');
+  });
   buildToolsMenu();
   document.addEventListener('click', closeMenus);
 }
