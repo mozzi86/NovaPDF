@@ -35,6 +35,14 @@
       "vendor/**/*",
       "!vendor/tessdata"
     ],
+    "fileAssociations": [
+      {
+        "ext": "pdf",
+        "name": "PDF-Dokument",
+        "mimeType": "application/pdf",
+        "role": "Viewer"
+      }
+    ],
     "asarUnpack": [
       "node_modules/tesseract.js/**/*",
       "node_modules/tesseract.js-core/**/*"

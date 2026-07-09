@@ -19,6 +19,7 @@ const Recent = {
 };
 
 function createWindow() {
+  rendererReady = false;
   const iconPath = path.join(__dirname, 'build', process.platform === 'darwin' ? 'icon.icns' : 'icon.ico');
   mainWindow = new BrowserWindow({
     width: 1400,
@@ -43,16 +44,40 @@ function createWindow() {
   mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
   buildMenu();
 
-  // Open a file passed on the command line (e.g. "open with NovaPDF")
-  const fileArg = process.argv.slice(1).find((a) => a.toLowerCase().endsWith('.pdf'));
-  if (fileArg && fs.existsSync(fileArg)) {
-    Recent.add(fileArg);
-    mainWindow.webContents.once('did-finish-load', () => {
-      const data = fs.readFileSync(fileArg);
-      mainWindow.webContents.send('open-file-data', { name: path.basename(fileArg), bytes: data });
-    });
-  }
+  mainWindow.webContents.once('did-finish-load', () => {
+    rendererReady = true;
+    // macOS: Datei aus Finder-Doppelklick (open-file kam vor dem Fensteraufbau)
+    if (pendingOpen) { sendOpenFile(pendingOpen); pendingOpen = null; return; }
+    // Windows/Linux/CLI: Datei als Programmargument
+    const fileArg = process.argv.slice(1).find((a) => a.toLowerCase().endsWith('.pdf'));
+    if (fileArg && fs.existsSync(fileArg)) sendOpenFile(fileArg);
+  });
 }
+
+// Datei an den Renderer schicken (Recent-Liste inklusive)
+let pendingOpen = null;
+let rendererReady = false;
+function sendOpenFile(p) {
+  if (!p || !fs.existsSync(p)) return;
+  try {
+    const data = fs.readFileSync(p);
+    Recent.add(p);
+    mainWindow.webContents.send('open-file-data', { name: path.basename(p), bytes: data });
+  } catch {}
+}
+
+// macOS: Doppelklick auf eine PDF im Finder / "Öffnen mit NovaPDF".
+// Feuert ggf. schon vor app.whenReady — Listener muss früh registriert sein.
+app.on('open-file', (e, p) => {
+  e.preventDefault();
+  if (mainWindow && !mainWindow.isDestroyed() && rendererReady) {
+    sendOpenFile(p);
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.focus();
+  } else {
+    pendingOpen = p;
+  }
+});
 
 function buildMenu() {
   const template = [
