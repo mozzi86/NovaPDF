@@ -210,6 +210,14 @@ function drawAnnos(pageIndex) {
     else if (a.type === 'rect') { ctx.strokeStyle = a.color; ctx.lineWidth = a.size * z; ctx.strokeRect(a.x * z, a.y * z, a.w * z, a.h * z); }
     else if (a.type === 'redact') { ctx.fillStyle = '#000'; ctx.fillRect(a.x * z, a.y * z, a.w * z, a.h * z); }
     else if (a.type === 'cover') { ctx.fillStyle = '#fff'; ctx.fillRect(a.x * z, a.y * z, a.w * z, a.h * z); }
+    else if (a.type === 'check') {
+      ctx.strokeStyle = '#17a13c'; ctx.lineWidth = Math.max(2, a.s / 5 * z); ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+      ctx.beginPath();
+      ctx.moveTo((a.x - a.s / 2) * z, a.y * z);
+      ctx.lineTo((a.x - a.s / 6) * z, (a.y + a.s / 3) * z);
+      ctx.lineTo((a.x + a.s / 2) * z, (a.y - a.s / 2) * z);
+      ctx.stroke();
+    }
     else if ((a.type === 'image' || a.type === 'sign') && a._img) { ctx.drawImage(a._img, a.x * z, a.y * z, a.w * z, a.h * z); }
     else if (a.type === 'text') {
       const d = el('div', 'anno-text'); d.contentEditable = 'true'; d.textContent = a.text;
@@ -249,7 +257,7 @@ function attachPageEvents(wrap, pageIndex) {
   const anno = wrap.querySelector('canvas.anno');
   const toLocal = (e) => { const r = anno.getBoundingClientRect(); return { x: (e.clientX - r.left) / S.zoom, y: (e.clientY - r.top) / S.zoom }; };
   const drawTool = () => ['highlight', 'draw', 'text', 'rect', 'redact'].includes(S.tool);
-  const clickTool = () => ['image', 'sign', 'edittext'].includes(S.tool);
+  const clickTool = () => ['image', 'sign', 'edittext', 'check'].includes(S.tool);
   const setPE = () => { anno.style.pointerEvents = (drawTool() || clickTool()) ? 'auto' : 'none'; };
   setPE(); wrap._setPE = setPE;
 
@@ -282,9 +290,18 @@ function attachPageEvents(wrap, pageIndex) {
     if (S.tool === 'image') placeImage(pageIndex, toLocal(e));
     else if (S.tool === 'sign') openSign(pageIndex, toLocal(e));
     else if (S.tool === 'edittext') editTextAt(pageIndex, toLocal(e), wrap);
+    else if (S.tool === 'check') placeCheck(pageIndex, toLocal(e));
   });
 }
 function refreshPE() { document.querySelectorAll('.page-wrap').forEach((w) => w._setPE && w._setPE()); }
+
+// Grüner Prüfhaken — Größe folgt dem Strichstärke-Regler
+function placeCheck(pageIndex, pt) {
+  pushUndo();
+  (S.annos[pageIndex] = S.annos[pageIndex] || []).push({ type: 'check', x: pt.x, y: pt.y, s: Math.max(14, S.size * 5) });
+  drawAnnos(pageIndex);
+  status('Haken gesetzt — weitere Klicks setzen weitere Haken');
+}
 
 async function placeImage(pageIndex, pt) {
   const img = await window.nova.openImageDialog(); if (!img) return;
@@ -524,6 +541,14 @@ async function buildExport({ flatten = false } = {}) {
       else if (a.type === 'rect') { const r = vpRect(a, width, height, R); page.drawRectangle({ x: r.x, y: r.y, width: r.w, height: r.h, borderColor: hexToRgb(a.color), borderWidth: a.size, opacity: 0 }); }
       else if (a.type === 'redact') { const r = vpRect(a, width, height, R); page.drawRectangle({ x: r.x, y: r.y, width: r.w, height: r.h, color: rgb(0, 0, 0) }); }
       else if (a.type === 'cover') { const r = vpRect(a, width, height, R); page.drawRectangle({ x: r.x, y: r.y, width: r.w, height: r.h, color: rgb(1, 1, 1) }); }
+      else if (a.type === 'check') {
+        const g = rgb(0.09, 0.63, 0.24), th = Math.max(1.5, a.s / 5);
+        const q1 = vpPoint(a.x - a.s / 2, a.y, width, height, R);
+        const q2 = vpPoint(a.x - a.s / 6, a.y + a.s / 3, width, height, R);
+        const q3 = vpPoint(a.x + a.s / 2, a.y - a.s / 2, width, height, R);
+        page.drawLine({ start: q1, end: q2, thickness: th, color: g });
+        page.drawLine({ start: q2, end: q3, thickness: th, color: g });
+      }
       else if (a.type === 'draw') for (let k = 1; k < a.points.length; k++) {
         const p0 = vpPoint(a.points[k - 1].x, a.points[k - 1].y, width, height, R);
         const p1 = vpPoint(a.points[k].x, a.points[k].y, width, height, R);
@@ -1169,7 +1194,7 @@ async function opUnlock() {
 }
 
 // ---------------- Toolbar / menus ----------------
-const TOOL_LABELS = { cursor: 'Auswählen', highlight: 'Markieren', draw: 'Zeichnen', text: 'Textfeld', rect: 'Rechteck', redact: 'Schwärzen', edittext: 'Text bearbeiten', image: 'Bild einfügen', sign: 'Unterschrift' };
+const TOOL_LABELS = { cursor: 'Auswählen', highlight: 'Markieren', draw: 'Zeichnen', text: 'Textfeld', rect: 'Rechteck', redact: 'Schwärzen', check: 'Grüner Haken', edittext: 'Text bearbeiten', image: 'Bild einfügen', sign: 'Unterschrift' };
 function setTool(t) { S.tool = t; document.querySelectorAll('#tool-buttons button').forEach((b) => b.classList.toggle('active', b.dataset.tool === t)); refreshPE(); status('Werkzeug: ' + (TOOL_LABELS[t] || TOOLS.find((x) => x.id === t)?.label || t)); }
 function zoom(d) { S.zoom = Math.min(4, Math.max(0.25, +(S.zoom + d).toFixed(2))); renderPages(); }
 function zoomFit() { if (!S.vp1[0]) return; S.zoom = +(($('#viewer').clientWidth - 64) / S.vp1[0].w).toFixed(2); renderPages(); }
