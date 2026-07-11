@@ -36,7 +36,8 @@
       "manifest.webmanifest",
       "sw.js",
       "icons/**/*",
-      "!vendor/tessdata"
+      "!vendor/tessdata",
+      "!vendor/tesseract"
     ],
     "fileAssociations": [
       {
