@@ -1,0 +1,58 @@
+name: Deploy PWA to GitHub Pages
+
+# Publishes the NovaPDF web app (PWA) to GitHub Pages so phones/tablets can
+# install it over HTTPS. Requires the repo to be PUBLIC (GitHub Free) and
+# Pages enabled; configure-pages below enables it automatically when it can.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install deps + build vendor (pdf.js, pdf-lib, icons, tesseract, tessdata)
+        run: npm install
+
+      - name: Assemble site
+        run: |
+          mkdir -p _site
+          cp -r renderer vendor icons _site/
+          cp manifest.webmanifest sw.js _site/
+          # root redirect → app
+          printf '<!DOCTYPE html><meta charset="utf-8"><meta http-equiv="refresh" content="0; url=renderer/index.html"><a href="renderer/index.html">NovaPDF öffnen</a>' > _site/index.html
+          # Pages runs Jekyll by default; disable so files with underscores etc. survive
+          touch _site/.nojekyll
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4

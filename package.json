@@ -33,6 +33,9 @@
       "preload.js",
       "renderer/**/*",
       "vendor/**/*",
+      "manifest.webmanifest",
+      "sw.js",
+      "icons/**/*",
       "!vendor/tessdata"
     ],
     "fileAssociations": [

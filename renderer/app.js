@@ -92,11 +92,16 @@ function showView(v) {
 }
 
 // ---------------- Open / load ----------------
-async function openAndShow(bytes, name) {
+// Bytes arriving over the Electron IPC bridge (or the e2e realm) may be a
+// Uint8Array from a different JS realm, which pdf-lib's instanceof checks
+// reject. Normalize everything crossing the file boundary to a local copy.
+const u8 = (b) => (b instanceof Uint8Array ? b : new Uint8Array(b));
+
+async function openAndShow(bytes, name, opts = {}) {
   let doc;
-  try { doc = await PDFDocument.load(bytes, { ignoreEncryption: true }); }
+  try { doc = await PDFDocument.load(u8(bytes), { ignoreEncryption: true }); }
   catch (e) { status('Fehler beim Laden: ' + e.message); return false; }
-  if (doc.isEncrypted) {
+  if (doc.isEncrypted && !opts.allowEncrypted) {
     // pdf-lib kann nicht entschlüsseln — weiterarbeiten würde beim Speichern
     // eine beschädigte Datei erzeugen. Lieber ehrlich ablehnen.
     status('Diese PDF ist verschlüsselt (Passwort/Beschränkungen). Bearbeiten würde die Datei beschädigen — bitte zuerst entsperren.');
@@ -122,7 +127,12 @@ async function ensureDoc() {
 async function refresh(resetScroll = false) {
   const saved = await S.pdfDoc.save({ updateFieldAppearances: false });
   S.bytes = saved;
-  S.pdfjs = await pdfjsLib.getDocument({ data: saved.slice(0) }).promise;
+  // When a watermark / page numbers / stamp is active, render the preview with
+  // those baked in (but NOT the user annotations — drawAnnos shows those live,
+  // so baking them too would double them up).
+  const previewOnly = S.watermark || S.pageNumbers || S.stamp;
+  const src = previewOnly ? await buildExport({ bakeAnnos: false }) : saved;
+  S.pdfjs = await pdfjsLib.getDocument({ data: src.slice(0) }).promise;
   await renderPages(); await renderThumbs();
   $('#page-count').textContent = `(${S.pdfjs.numPages})`;
   if (resetScroll) $('#viewer').scrollTop = 0;
@@ -147,11 +157,14 @@ async function renderPages() {
       }).filter((t) => t.str && t.str.trim());
     } catch { S.textItems[i] = []; }
     const vp = page.getViewport({ scale: S.zoom });
+    const dpr = Math.min(window.devicePixelRatio || 1, 3); // render at native display resolution → crisp on HiDPI / Windows scaling
     const wrap = el('div', 'page-wrap'); wrap.dataset.page = i;
     wrap.style.width = vp.width + 'px'; wrap.style.height = vp.height + 'px';
-    const canvas = el('canvas', 'pdf'); canvas.width = vp.width; canvas.height = vp.height;
+    const canvas = el('canvas', 'pdf');
+    canvas.width = Math.round(vp.width * dpr); canvas.height = Math.round(vp.height * dpr);
+    canvas.style.width = vp.width + 'px'; canvas.style.height = vp.height + 'px';
     wrap.appendChild(canvas);
-    await page.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise;
+    await page.render({ canvasContext: canvas.getContext('2d'), viewport: vp, transform: dpr !== 1 ? [dpr, 0, 0, dpr, 0, 0] : undefined }).promise;
     const anno = el('canvas', 'anno'); anno.width = vp.width; anno.height = vp.height; wrap.appendChild(anno);
     const overlay = el('div', 'overlay'); overlay.dataset.page = i; wrap.appendChild(overlay);
     host.appendChild(wrap);
@@ -459,7 +472,7 @@ function remapAnnos(map) { const o = {}; for (const k in S.annos) { const nk = m
 
 async function addMerge() {
   const files = await window.nova.openDialog({ multi: true }); if (!files.length) return;
-  for (const f of files) { const src = await PDFDocument.load(f.bytes, { ignoreEncryption: true }); (await S.pdfDoc.copyPages(src, src.getPageIndices())).forEach((p) => S.pdfDoc.addPage(p)); }
+  for (const f of files) { const src = await PDFDocument.load(u8(f.bytes), { ignoreEncryption: true }); (await S.pdfDoc.copyPages(src, src.getPageIndices())).forEach((p) => S.pdfDoc.addPage(p)); }
   await refresh(); status(`${files.length} Datei(en) zusammengeführt — jetzt ${S.pdfDoc.getPageCount()} Seiten`);
 }
 
@@ -526,7 +539,7 @@ function drawTextSafe(page, text, opts) {
   }
 }
 
-async function buildExport({ flatten = false } = {}) {
+async function buildExport({ flatten = false, bakeAnnos = true } = {}) {
   const doc = await PDFDocument.load(S.bytes.slice(0), { ignoreEncryption: true });
   applyFormValues(doc);
   const font = await doc.embedFont(StandardFonts.Helvetica);
@@ -536,7 +549,7 @@ async function buildExport({ flatten = false } = {}) {
     const page = pages[i], { width, height } = page.getSize();
     const R = pageRot(page);
     const dw = R % 180 ? height : width, dh = R % 180 ? width : height; // displayed dims
-    for (const a of (S.annos[i] || [])) {
+    if (bakeAnnos) for (const a of (S.annos[i] || [])) {
       if (a.type === 'highlight') { const r = vpRect(a, width, height, R); page.drawRectangle({ x: r.x, y: r.y, width: r.w, height: r.h, color: hexToRgb(a.color), opacity: .35 }); }
       else if (a.type === 'rect') { const r = vpRect(a, width, height, R); page.drawRectangle({ x: r.x, y: r.y, width: r.w, height: r.h, borderColor: hexToRgb(a.color), borderWidth: a.size, opacity: 0 }); }
       else if (a.type === 'redact') { const r = vpRect(a, width, height, R); page.drawRectangle({ x: r.x, y: r.y, width: r.w, height: r.h, color: rgb(0, 0, 0) }); }
@@ -739,8 +752,8 @@ async function dispatch(id) {
 
 async function opMerge() {
   const files = await window.nova.openDialog({ multi: true }); if (files.length < 1) return;
-  const doc = await PDFDocument.load(files[0].bytes, { ignoreEncryption: true });
-  for (let i = 1; i < files.length; i++) { const src = await PDFDocument.load(files[i].bytes, { ignoreEncryption: true }); (await doc.copyPages(src, src.getPageIndices())).forEach((p) => doc.addPage(p)); }
+  const doc = await PDFDocument.load(u8(files[0].bytes), { ignoreEncryption: true });
+  for (let i = 1; i < files.length; i++) { const src = await PDFDocument.load(u8(files[i].bytes), { ignoreEncryption: true }); (await doc.copyPages(src, src.getPageIndices())).forEach((p) => doc.addPage(p)); }
   await openAndShow(await doc.save(), files.length > 1 ? 'zusammengefuehrt.pdf' : files[0].name);
   status(`${files.length} Datei(en) zusammengeführt — ${S.pdfDoc.getPageCount()} Seiten`);
 }
@@ -771,7 +784,10 @@ async function opRemove() {
   const idx = parseRanges(a.r, total); if (!idx.length) { status('Keine gültigen Seiten angegeben'); return; }
   if (idx.length >= total) { status('Es müssen Seiten übrig bleiben'); return; }
   for (const i of idx.slice().reverse()) S.pdfDoc.removePage(i);
-  S.annos = {}; await refresh(); status(`${idx.length} Seite(n) entfernt — ${S.pdfDoc.getPageCount()} übrig`);
+  // Annotationen der überlebenden Seiten erhalten und Indizes verschieben
+  const removed = new Set(idx);
+  remapAnnos((o) => (removed.has(o) ? null : o - idx.filter((r) => r < o).length));
+  await refresh(); status(`${idx.length} Seite(n) entfernt — ${S.pdfDoc.getPageCount()} übrig`);
 }
 
 async function opExtract() {
@@ -789,7 +805,7 @@ async function opImagesToPdf() {
   const imgs = await window.nova.openImageDialog({ multi: true }); if (!imgs.length) return;
   const doc = await PDFDocument.create();
   for (const img of imgs) {
-    const emb = img.ext === '.png' ? await doc.embedPng(img.bytes) : await doc.embedJpg(img.bytes);
+    const emb = img.ext === '.png' ? await doc.embedPng(u8(img.bytes)) : await doc.embedJpg(u8(img.bytes));
     const page = doc.addPage([emb.width, emb.height]); page.drawImage(emb, { x: 0, y: 0, width: emb.width, height: emb.height });
   }
   await openAndShow(await doc.save(), 'bilder.pdf');
@@ -807,12 +823,9 @@ async function opNumbers() {
   if (!a) return; S.pageNumbers = { withTotal: a.fmt === 'nt' };
   await refreshOverlayFromExport(); status('Seitenzahlen gesetzt — beim Speichern eingebrannt');
 }
-// Re-render the viewer showing watermark/numbers by baking into a preview
-async function refreshOverlayFromExport() {
-  const preview = await buildExport({ flatten: false });
-  S.pdfjs = await pdfjsLib.getDocument({ data: preview.slice(0) }).promise;
-  await renderPages();
-}
+// Re-render showing watermark/numbers/stamp (refresh bakes those into the
+// preview without double-drawing the live annotations).
+async function refreshOverlayFromExport() { await refresh(); }
 
 async function opStamp() {
   const total = S.pdfDoc.getPageCount();
@@ -853,7 +866,7 @@ async function opOverlay() {
   status('Overlay-PDF wählen (z. B. Briefkopf)…');
   const files = await window.nova.openDialog({ multi: false }); if (!files[0]) { status('Bereit'); return; }
   let src;
-  try { src = await PDFDocument.load(files[0].bytes, { ignoreEncryption: true }); }
+  try { src = await PDFDocument.load(u8(files[0].bytes), { ignoreEncryption: true }); }
   catch (e) { status('Overlay konnte nicht geladen werden: ' + e.message); return; }
   if (src.isEncrypted) { status('Overlay-PDF ist verschlüsselt — bitte zuerst entsperren.'); return; }
   const total = S.pdfDoc.getPageCount();
@@ -1187,10 +1200,11 @@ async function opProtect() {
 
 async function opUnlock() {
   const files = await window.nova.openDialog({ multi: false }); if (!files[0]) return;
-  const ok = await openAndShow(files[0].bytes, files[0].name);
-  // Echte Verschlüsselung (auch reine Berechtigungs-Sperren nutzen /Encrypt)
-  // lehnt openAndShow ab — alles andere wird beim Speichern neu geschrieben.
-  if (ok) status('Geladen. Beim Speichern wird die Datei ohne Sperr-Flags neu geschrieben.');
+  // Bewusst mit allowEncrypted: Berechtigungs-Sperren (nur Owner-Passwort) lassen
+  // sich mit ignoreEncryption laden und beim Speichern ohne /Encrypt neu schreiben.
+  // Ein echtes User-Passwort lässt pdf-lib gar nicht erst laden (Fehlermeldung).
+  const ok = await openAndShow(files[0].bytes, files[0].name, { allowEncrypted: true });
+  if (ok) status('Entsperrt geladen. Beim Speichern wird die Datei ohne Sperr-Flags (Berechtigungen) neu geschrieben. Ein echtes Öffnungs-Passwort kann nicht entfernt werden.');
 }
 
 // ---------------- Toolbar / menus ----------------

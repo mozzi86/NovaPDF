@@ -48,6 +48,24 @@ if (fs.existsSync(phSrc)) {
   }
 } else console.warn('!! phosphor icons not found');
 
+// tesseract.js browser build (lib + worker + all wasm core variants) for the
+// PWA OCR path. The renderer picks the right core via SIMD detection.
+const tessDest = path.join(vendor, 'tesseract');
+fs.mkdirSync(tessDest, { recursive: true });
+const tDist = path.join(root, 'node_modules', 'tesseract.js', 'dist');
+for (const f of ['tesseract.min.js', 'worker.min.js']) {
+  const from = path.join(tDist, f);
+  if (fs.existsSync(from)) { fs.copyFileSync(from, path.join(tessDest, f)); console.log('vendor <- tesseract/' + f); }
+  else console.warn('!! tesseract dist missing: ' + f);
+}
+const tCore = path.join(root, 'node_modules', 'tesseract.js-core');
+if (fs.existsSync(tCore)) {
+  for (const f of fs.readdirSync(tCore)) {
+    if (/\.(wasm|js)$/.test(f)) fs.copyFileSync(path.join(tCore, f), path.join(tessDest, f));
+  }
+  console.log('vendor <- tesseract core files');
+} else console.warn('!! tesseract.js-core not found');
+
 // OCR-Sprachdaten (tesseract.js): einmalig herunterladen, danach offline.
 // tessdata_fast ist klein (~2-6 MB pro Sprache) und für Scans völlig ausreichend.
 const https = require('https');

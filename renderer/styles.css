@@ -177,3 +177,39 @@ aside { background: var(--bg2); overflow-y: auto; flex-shrink: 0; }
 ::-webkit-scrollbar-thumb { background: #313a56; border-radius: 6px; }
 ::-webkit-scrollbar-thumb:hover { background: #3c466a; }
 ::-webkit-scrollbar-track { background: transparent; }
+
+/* ---------- Mobile / tablet (phones, small tablets) ---------- */
+@media (max-width: 820px) {
+  #appbar { height: 52px; padding: 0 10px; gap: 8px; }
+  .brand-btn .ph { font-size: 20px; }
+  .brand { font-size: 16px; }
+  #home-search-wrap.search-wrap { width: auto; flex: 1; max-width: 260px; height: 36px; }
+  .doc-name { max-width: 40vw; }
+
+  /* one horizontally-scrollable toolbar row instead of wrapping into many */
+  #toolbar { flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden; gap: 6px; padding: 7px 10px; -webkit-overflow-scrolling: touch; }
+  #toolbar .grow { display: none; }
+  #toolbar .sep { margin: 6px 1px; }
+  .search-wrap.small { width: 150px; }
+  .menu.wide { max-height: 60vh; }
+
+  /* full-width page view; page thumbnails + form panel hidden on phones */
+  #sidebar, #props { display: none; }
+  #viewer { width: 100%; }
+  #pages { padding: 12px; }
+
+  .home-inner { padding: 24px 16px 56px; }
+  .home-inner h1 { font-size: 23px; }
+  .home-inner .lead { font-size: 14px; margin-bottom: 26px; }
+  .tiles { grid-template-columns: 1fr 1fr; gap: 10px; }
+  .tile { min-height: 92px; padding: 14px; }
+  .tile .ico { width: 36px; height: 36px; margin-bottom: 10px; }
+  .recent-list { grid-template-columns: 1fr; }
+}
+@media (max-width: 460px) {
+  .tiles { grid-template-columns: 1fr; }
+}
+/* Fine for touch: don't let tap targets get too tiny */
+@media (pointer: coarse) {
+  #toolbar button, .tools button { min-height: 40px; }
+}

@@ -2,8 +2,16 @@
 <html lang="de">
 <head>
   <meta charset="UTF-8" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data: blob:; font-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; worker-src 'self' blob:; connect-src 'self' blob: data:;" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data: blob:; font-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'wasm-unsafe-eval' blob:; worker-src 'self' blob:; connect-src 'self' blob: data:;" />
   <title>NovaPDF</title>
+  <meta name="theme-color" content="#0f1320" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="NovaPDF" />
+  <link rel="manifest" href="../manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="../icons/apple-touch-icon-180.png" />
   <link rel="stylesheet" href="../vendor/phosphor/style.css" />
   <link rel="stylesheet" href="styles.css" />
 </head>
@@ -158,6 +166,7 @@
   </div>
 
   <script src="../vendor/pdf-lib.min.js"></script>
+  <script src="nova-web.js"></script>
   <script type="module" src="app.js"></script>
 </body>
 </html>
