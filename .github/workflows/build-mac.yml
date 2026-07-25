@@ -21,8 +21,26 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      - name: Build DMG (arm64 + x64)
-        run: npm run dist:mac
+      - name: Vendor assets (pdf.js, pdf-lib, icons, tesseract, tessdata)
+        run: node scripts/copy-vendor.js
+
+      # Unsigned build: without this, electron-builder looks for a signing
+      # identity on the runner and aborts when none exists.
+      - name: Build DMG (arm64)
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+          DEBUG: electron-builder
+        run: npx electron-builder --mac dmg --arm64 --publish never
+
+      - name: Build DMG (x64)
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+          DEBUG: electron-builder
+        run: npx electron-builder --mac dmg --x64 --publish never
+
+      - name: List artifacts
+        if: always()
+        run: ls -lh release/ || true
 
       - name: Upload DMG artifacts
         uses: actions/upload-artifact@v4
