@@ -58,6 +58,7 @@
       }
     ],
     "win": {
+      "icon": "icons/icon-512.png",
       "target": [
         {
           "target": "portable",
@@ -71,6 +72,7 @@
       "artifactName": "NovaPDF-${version}-portable.exe"
     },
     "mac": {
+      "icon": "icons/icon-512.png",
       "target": [
         {
           "target": "dmg",
