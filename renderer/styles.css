@@ -137,8 +137,11 @@ aside { background: var(--bg2); overflow-y: auto; flex-shrink: 0; }
 .page-wrap { position: relative; box-shadow: 0 8px 30px rgba(0,0,0,.55); background: #fff; }
 .page-wrap canvas.pdf { display: block; }
 .page-wrap canvas.anno { position: absolute; inset: 0; }
-.page-wrap .overlay { position: absolute; inset: 0; }
-.anno-text { position: absolute; border: 1px dashed transparent; min-width: 20px; min-height: 18px; padding: 1px 3px; outline: none; cursor: text; white-space: pre-wrap; }
+/* Overlay liegt über der Zeichen-Canvas — es muss Klicks durchlassen, sonst
+   erreichen Stift/Haken/Markierung die Canvas nie. Nur die Textfelder darin
+   fangen Klicks selbst ab (zum Bearbeiten). */
+.page-wrap .overlay { position: absolute; inset: 0; pointer-events: none; }
+.anno-text { position: absolute; border: 1px dashed transparent; min-width: 20px; min-height: 18px; padding: 1px 3px; outline: none; cursor: text; white-space: pre-wrap; pointer-events: auto; }
 .anno-text:hover, .anno-text:focus { border-color: var(--accent); }
 
 #fields { padding: 12px; display: flex; flex-direction: column; gap: 11px; }
