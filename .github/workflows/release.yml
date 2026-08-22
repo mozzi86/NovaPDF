@@ -3,11 +3,11 @@ name: Release Build
 # Baut die portable Windows-Exe und die macOS-DMGs und hängt alles an ein
 # GitHub-Release. Trigger: Version-Tag (v1.2.3) pushen oder manuell starten.
 #
-# Das Hochladen erledigt electron-builder selbst (build.publish in package.json),
-# deshalb gibt es hier keinen zweiten Upload-Schritt, dessen Dateimuster mit
-# artifactName synchron gehalten werden müsste. Ohne Tag wird nur gebaut und das
-# Ergebnis als Workflow-Artefakt angehängt — ein manueller Lauf soll kein
-# Release anlegen.
+# Warum der Upload NICHT von electron-builder kommt: die beiden Jobs laufen
+# parallel, und electron-builders eigener GitHub-Publisher legt dann zweimal ein
+# Release zum selben Tag an (in v1.1.3 passiert — die Artefakte landeten auf zwei
+# Release-Objekte verteilt, /releases/latest/download/ lieferte 404).
+# softprops/action-gh-release behandelt das gleichzeitige Anlegen korrekt.
 on:
   workflow_dispatch:
   push:
@@ -26,13 +26,16 @@ jobs:
         with:
           node-version: 20
       # npm ci installiert reproduzierbar aus dem Lockfile; das postinstall-Skript
-      # (scripts/copy-vendor.js) legt dabei vendor/ an.
+      # (scripts/copy-vendor.js) legt dabei vendor/ an — kein zweiter Aufruf nötig.
       - name: Install dependencies
         run: npm ci
       - name: Build portable exe
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npx electron-builder --win portable --publish ${{ startsWith(github.ref, 'refs/tags/') && 'always' || 'never' }}
+        run: npx electron-builder --win portable --publish never
+      - name: Upload to release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/*.exe
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
@@ -54,13 +57,16 @@ jobs:
       - name: Build DMG (arm64)
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: false
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npx electron-builder --mac dmg --arm64 --publish ${{ startsWith(github.ref, 'refs/tags/') && 'always' || 'never' }}
+        run: npx electron-builder --mac dmg --arm64 --publish never
       - name: Build DMG (x64)
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: false
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npx electron-builder --mac dmg --x64 --publish ${{ startsWith(github.ref, 'refs/tags/') && 'always' || 'never' }}
+        run: npx electron-builder --mac dmg --x64 --publish never
+      - name: Upload to release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/*.dmg
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
