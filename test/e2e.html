@@ -18,6 +18,8 @@ const rec = (name, pass, detail) => { RESULTS.tests.push({ name, pass: !!pass, d
 window.requestAnimationFrame = (cb) => setTimeout(() => cb(performance.now()), 16);
 const pdfjs = await import('../vendor/pdf.mjs');
 pdfjs.GlobalWorkerOptions.workerSrc = new URL('../vendor/pdf.worker.mjs', import.meta.url).href;
+// pdf.js 6: destroy() liegt nicht mehr auf dem Dokument-Proxy, sondern auf dem loadingTask
+const destroyDoc = (d) => (typeof d.destroy === 'function' ? d.destroy() : d.loadingTask.destroy());
 
 const frame = document.getElementById('app');
 // Robust warten, bis die App im iframe wirklich initialisiert ist (PDFLib + UI da)
@@ -68,7 +70,7 @@ const lastSaved = () => saved[saved.length - 1];
 const textOf = async (bytes, n) => {
   const d = await pdfjs.getDocument({ data: toParent(bytes) }).promise;
   const tc = await (await d.getPage(n)).getTextContent();
-  const t = tc.items.map((i) => i.str).join(' ').trim(); await d.destroy(); return t;
+  const t = tc.items.map((i) => i.str).join(' ').trim(); await destroyDoc(d); return t;
 };
 const renderPx = async (bytes, n, x, y, scale = 1) => {
   const d = await pdfjs.getDocument({ data: toParent(bytes) }).promise;
@@ -76,7 +78,7 @@ const renderPx = async (bytes, n, x, y, scale = 1) => {
   const c = document.createElement('canvas'); c.width = vp.width; c.height = vp.height;
   const ctx = c.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height);
   await p.render({ canvasContext: ctx, viewport: vp }).promise;
-  const px = ctx.getImageData(x, y, 1, 1).data; await d.destroy();
+  const px = ctx.getImageData(x, y, 1, 1).data; await destroyDoc(d);
   return [px[0], px[1], px[2]];
 };
 const mkDoc = async (n, withForm) => {
@@ -123,7 +125,7 @@ try {
     for (let i = 1; i <= 4; i++) order.push(await textOf(bytesOrga, i));
     const dd = await pdfjs.getDocument({ data: toParent(bytesOrga) }).promise;
     const vp = (await dd.getPage(3)).getViewport({ scale: 1 });
-    rot3 = vp.width > vp.height; await dd.destroy();
+    rot3 = vp.width > vp.height; await destroyDoc(dd);
   } catch (e) { moveErr = e.message; }
   rec('Seite verschieben (Drag&Drop) + Export lesbar', movedOk && !moveErr && order.join(',') === 'Seite 2,Seite 3,Seite 1,Seite 4', moveErr || order.join(' | '));
   rec('Verschobene Seite behält Drehung', rot3);
@@ -144,7 +146,7 @@ try {
   await wait(() => saved.length > beforeEx);
   const exDoc = await pdfjs.getDocument({ data: toParent(lastSaved().bytes) }).promise;
   rec('Seiten extrahieren', exDoc.numPages === 2, lastSaved().defaultName);
-  await exDoc.destroy();
+  await destroyDoc(exDoc);
 
   const beforeSp = saved.length;
   tool('PDF teilen'); await promptOk(['every', '2']);
@@ -183,7 +185,7 @@ try {
     await p.render({ canvasContext: ctx, viewport: vp }).promise;
     const img = ctx.getImageData(300, 200, 180, 70).data;
     for (let i = 0; i < img.length; i += 4) if (img[i] < 100 && img[i + 1] < 100) { sigInk = true; break; }
-    await d.destroy(); }
+    await destroyDoc(d); }
   rec('Unterschrift zeichnen + einbrennen', sigInk);
 
   tool('Wasserzeichen'); await promptOk(['VERTRAULICH']);

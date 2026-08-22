@@ -15,7 +15,7 @@ Bearbeiten · Organisieren · Konvertieren · Signieren · Schwärzen — alles 
 
 ### ⬇️ Download
 
-[![Download macOS](https://img.shields.io/badge/Download-macOS%20(Apple%20Silicon)-000000?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/mozzi86/NovaPDF/releases/latest/download/NovaPDF-1.0.0-arm64.dmg)
+[![Download macOS](https://img.shields.io/badge/Download-macOS%20(Apple%20Silicon)-000000?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/mozzi86/NovaPDF/releases/latest/download/NovaPDF-1.1.0-arm64.dmg)
 &nbsp;
 [![Download Windows](https://img.shields.io/badge/Download-Windows%20(portabel)-0078D6?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/mozzi86/NovaPDF/releases/latest)
 &nbsp;
@@ -78,8 +78,8 @@ npm start       # App starten
 ## Eigene Builds
 
 ```bash
-npm run dist        # Windows: release/NovaPDF-1.0.0-portable.exe
-npm run dist:mac    # macOS:   release/NovaPDF-1.0.0-*.dmg
+npm run dist        # Windows: release/NovaPDF-1.1.0-portable.exe
+npm run dist:mac    # macOS:   release/NovaPDF-1.1.0-*.dmg
 ```
 
 Die portable Windows-`.exe` ist eigenständig — auf jeden Windows-Rechner oder USB-Stick kopierbar, keine Installation.

@@ -1,0 +1,60 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#161d33"/>
+      <stop offset="1" stop-color="#0a0d18"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.72" cy="0.24" r="0.55">
+      <stop offset="0" stop-color="#4d8dff" stop-opacity="0.34"/>
+      <stop offset="1" stop-color="#4d8dff" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="doc" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#e7ebf5"/>
+    </linearGradient>
+    <linearGradient id="badge" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#5d98ff"/>
+      <stop offset="1" stop-color="#3a72e8"/>
+    </linearGradient>
+    <linearGradient id="star" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#bcd6ff"/>
+      <stop offset="1" stop-color="#4d8dff"/>
+    </linearGradient>
+    <filter id="softshadow" x="-40%" y="-40%" width="180%" height="180%">
+      <feDropShadow dx="0" dy="10" stdDeviation="18" flood-color="#000000" flood-opacity="0.45"/>
+    </filter>
+    <filter id="starglow" x="-80%" y="-80%" width="260%" height="260%">
+      <feDropShadow dx="0" dy="0" stdDeviation="10" flood-color="#6ba0ff" flood-opacity="0.85"/>
+    </filter>
+  </defs>
+
+  <!-- background tile -->
+  <rect width="512" height="512" fill="url(#bg)"/>
+  <rect width="512" height="512" fill="url(#glow)"/>
+
+  <!-- document with folded corner -->
+  <g filter="url(#softshadow)">
+    <path d="M162 124 q0 -14 14 -14 h118 l52 52 v182 q0 14 -14 14 h-156 q-14 0 -14 -14 Z" fill="url(#doc)"/>
+    <path d="M294 110 l52 52 h-40 q-12 0 -12 -12 Z" fill="#c9d3e6"/>
+  </g>
+
+  <!-- text lines -->
+  <rect x="188" y="188" width="112" height="16" rx="8" fill="#c3cbdd"/>
+  <rect x="188" y="218" width="136" height="16" rx="8" fill="#d7ddeb"/>
+
+  <!-- PDF badge -->
+  <g filter="url(#softshadow)">
+    <rect x="186" y="256" width="196" height="62" rx="18" fill="url(#badge)"/>
+    <text x="284" y="301" text-anchor="middle" font-family="'Segoe UI', Arial, sans-serif" font-size="42" font-weight="800" letter-spacing="6" fill="#ffffff">PDF</text>
+  </g>
+
+  <!-- NOVA wordmark -->
+  <text x="263" y="428" text-anchor="middle" font-family="'Segoe UI', Arial, sans-serif" font-size="54" font-weight="800" letter-spacing="14" fill="#dbe6ff">NOVA</text>
+
+  <!-- nova star burst -->
+  <g filter="url(#starglow)">
+    <path transform="translate(376 128)" d="M0,-58 Q7,-9 58,0 Q7,9 0,58 Q-7,9 -58,0 Q-7,-9 0,-58 Z" fill="url(#star)"/>
+    <path transform="translate(424 196) scale(0.34)" d="M0,-58 Q7,-9 58,0 Q7,9 0,58 Q-7,9 -58,0 Q-7,-9 0,-58 Z" fill="#9dc2ff"/>
+    <path transform="translate(330 84) scale(0.22)" d="M0,-58 Q7,-9 58,0 Q7,9 0,58 Q-7,9 -58,0 Q-7,-9 0,-58 Z" fill="#dcebff"/>
+  </g>
+</svg>
