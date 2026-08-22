@@ -20,7 +20,9 @@ const Recent = {
 
 function createWindow() {
   rendererReady = false;
-  const iconPath = path.join(__dirname, 'build', process.platform === 'darwin' ? 'icon.icns' : 'icon.ico');
+  // Fenster-/Taskleisten-Icon. Die .ico/.icns der Installer erzeugt
+  // electron-builder aus derselben PNG (siehe build.win/build.mac).
+  const iconPath = path.join(__dirname, 'icons', 'icon-512.png');
   mainWindow = new BrowserWindow({
     width: 1400,
     height: 900,
@@ -66,7 +68,7 @@ function sendOpenFile(p) {
   } catch {}
 }
 
-// macOS: Doppelklick auf eine PDF im Finder / "Öffnen mit NovaPDF".
+// macOS: Doppelklick auf eine PDF im Finder / "Öffnen mit BIT-Nova PDF".
 // Feuert ggf. schon vor app.whenReady — Listener muss früh registriert sein.
 app.on('open-file', (e, p) => {
   e.preventDefault();

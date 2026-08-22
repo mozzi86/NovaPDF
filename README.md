@@ -15,9 +15,9 @@ Bearbeiten · Organisieren · Konvertieren · Signieren · Schwärzen — alles 
 
 ### ⬇️ Download
 
-[![Download macOS](https://img.shields.io/badge/Download-macOS%20(Apple%20Silicon)-000000?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/mozzi86/NovaPDF/releases/latest/download/BIT-Nova-PDF-1.1.0-arm64.dmg)
+[![Download macOS](https://img.shields.io/badge/Download-macOS%20(Apple%20Silicon)-000000?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/mozzi86/NovaPDF/releases/latest/download/BIT-Nova-PDF-arm64.dmg)
 &nbsp;
-[![Download Windows](https://img.shields.io/badge/Download-Windows%20(portabel)-0078D6?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/mozzi86/NovaPDF/releases/latest/download/BIT-Nova-PDF-1.1.0-portable.exe)
+[![Download Windows](https://img.shields.io/badge/Download-Windows%20(portabel)-0078D6?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/mozzi86/NovaPDF/releases/latest/download/BIT-Nova-PDF-portable.exe)
 &nbsp;
 [![Alle Releases](https://img.shields.io/badge/Alle-Versionen-555555?style=for-the-badge&logo=github&logoColor=white)](https://github.com/mozzi86/NovaPDF/releases)
 
@@ -78,8 +78,9 @@ npm start       # App starten
 ## Eigene Builds
 
 ```bash
-npm run dist        # Windows: release/BIT-Nova-PDF-1.1.0-portable.exe
-npm run dist:mac    # macOS:   release/BIT-Nova-PDF-1.1.0-*.dmg
+npm run make-icons  # icons/*.png aus icons/logo.svg neu rendern (nur nach Logo-Änderung)
+npm run dist        # Windows: release/BIT-Nova-PDF-portable.exe
+npm run dist:mac    # macOS:   release/BIT-Nova-PDF-{arm64,x64}.dmg
 ```
 
 Die portable Windows-`.exe` ist eigenständig — auf jeden Windows-Rechner oder USB-Stick kopierbar, keine Installation.

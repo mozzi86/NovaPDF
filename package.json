@@ -1,6 +1,6 @@
 {
   "name": "bit-nova-pdf",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "BIT-Nova PDF — portable PDF editor (view, annotate, organize, forms, sign, edit)",
   "author": "Schwarz Architekturbüro",
   "main": "main.js",
@@ -20,6 +20,7 @@
     "tesseract.js": "^7.0.0"
   },
   "devDependencies": {
+    "@pdf-lib/upng": "^1.0.1",
     "electron": "^43.4.1",
     "electron-builder": "^26.15.3"
   },
@@ -59,7 +60,7 @@
       }
     ],
     "win": {
-      "icon": "build/icon.ico",
+      "icon": "icons/icon-512.png",
       "target": [
         {
           "target": "portable",
@@ -70,10 +71,10 @@
       ]
     },
     "portable": {
-      "artifactName": "BIT-Nova-PDF-${version}-portable.exe"
+      "artifactName": "BIT-Nova-PDF-portable.exe"
     },
     "mac": {
-      "icon": "build/icon.icns",
+      "icon": "icons/icon-512.png",
       "target": [
         {
           "target": "dmg",
@@ -102,7 +103,7 @@
       }
     },
     "dmg": {
-      "artifactName": "BIT-Nova-PDF-${version}-${arch}.dmg"
+      "artifactName": "BIT-Nova-PDF-${arch}.dmg"
     }
   }
 }

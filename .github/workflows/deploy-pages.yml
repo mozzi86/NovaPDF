@@ -39,7 +39,7 @@ jobs:
           cp -r renderer vendor icons _site/
           cp manifest.webmanifest sw.js _site/
           # root redirect → app
-          printf '<!DOCTYPE html><meta charset="utf-8"><meta http-equiv="refresh" content="0; url=renderer/index.html"><a href="renderer/index.html">NovaPDF öffnen</a>' > _site/index.html
+          printf '<!DOCTYPE html><meta charset="utf-8"><meta http-equiv="refresh" content="0; url=renderer/index.html"><a href="renderer/index.html">BIT-Nova PDF öffnen</a>' > _site/index.html
           # Pages runs Jekyll by default; disable so files with underscores etc. survive
           touch _site/.nojekyll
 

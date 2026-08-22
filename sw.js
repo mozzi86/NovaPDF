@@ -1,7 +1,11 @@
-// NovaPDF service worker — precache the whole app so it runs fully offline.
+// BIT-Nova PDF service worker — precache the whole app so it runs fully offline.
 // Lives at project root; scope covers renderer/ and vendor/. Relative URLs keep
 // it host-agnostic (works under GitHub Pages sub-paths too).
-const CACHE = 'novapdf-v1';
+//
+// CACHE bei jeder Änderung an ASSETS hochzählen — 'activate' löscht alle Caches
+// mit abweichendem Namen, sonst liefert der SW installierten Nutzern ewig den
+// alten Stand aus (v2: Umbenennung BIT-Nova PDF + neue Icons).
+const CACHE = 'bit-nova-pdf-v2';
 const ASSETS = [
   'renderer/index.html',
   'renderer/styles.css',
