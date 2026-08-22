@@ -1,6 +1,6 @@
 {
   "name": "bit-nova-pdf",
-  "version": "1.1.2",
+  "version": "1.1.3",
   "description": "BIT-Nova PDF — portable PDF editor (view, annotate, organize, forms, sign, edit)",
   "author": "Schwarz Architekturbüro",
   "main": "main.js",
@@ -9,9 +9,9 @@
     "copy-vendor": "node scripts/copy-vendor.js",
     "make-icons": "electron scripts/make-icons.js",
     "postinstall": "node scripts/copy-vendor.js",
-    "dist": "node scripts/copy-vendor.js && electron-builder --win portable",
-    "dist:mac": "node scripts/copy-vendor.js && electron-builder --mac dmg",
-    "dist:all": "node scripts/copy-vendor.js && electron-builder -mw"
+    "dist": "node scripts/copy-vendor.js && electron-builder --win portable --publish never",
+    "dist:mac": "node scripts/copy-vendor.js && electron-builder --mac dmg --publish never",
+    "dist:all": "node scripts/copy-vendor.js && electron-builder -mw --publish never"
   },
   "dependencies": {
     "@cantoo/pdf-lib": "^2.9.1",
@@ -27,6 +27,14 @@
   "build": {
     "appId": "de.schwarzarchitektur.novapdf",
     "productName": "BIT-Nova PDF",
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "mozzi86",
+        "repo": "NovaPDF",
+        "releaseType": "release"
+      }
+    ],
     "directories": {
       "output": "release"
     },
