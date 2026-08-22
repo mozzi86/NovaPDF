@@ -1,6 +1,6 @@
 {
-  "name": "NovaPDF — PDF-Editor",
-  "short_name": "NovaPDF",
+  "name": "BIT-Nova PDF — PDF-Editor",
+  "short_name": "BIT-Nova PDF",
   "description": "Vollständig lokaler PDF-Editor: ansehen, kommentieren, organisieren, signieren, bearbeiten. Läuft offline.",
   "start_url": "renderer/index.html",
   "scope": ".",

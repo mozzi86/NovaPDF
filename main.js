@@ -27,7 +27,7 @@ function createWindow() {
     minWidth: 900,
     minHeight: 600,
     backgroundColor: '#1f2430',
-    title: 'NovaPDF',
+    title: 'BIT-Nova PDF',
     ...(fs.existsSync(iconPath) ? { icon: iconPath } : {}),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -115,7 +115,7 @@ function buildMenu() {
     {
       label: 'Hilfe',
       submenu: [
-        { label: 'Über NovaPDF', click: () => dialog.showMessageBox(mainWindow, { type: 'info', title: 'NovaPDF', message: 'NovaPDF', detail: 'Portabler PDF-Editor\nView · Annotate · Organize · Forms · Sign · Edit\n\nSchwarz Architekturbüro' }) }
+        { label: 'Über BIT-Nova PDF', click: () => dialog.showMessageBox(mainWindow, { type: 'info', title: 'BIT-Nova PDF', message: 'BIT-Nova PDF', detail: 'Portabler PDF-Editor\nView · Annotate · Organize · Forms · Sign · Edit\n\nBIT-Atelier · Schwarz Architekturbüro' }) }
       ]
     }
   ];

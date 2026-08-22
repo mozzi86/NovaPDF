@@ -1,0 +1,71 @@
+name: Release Build
+
+# Baut die portable Windows-Exe und die macOS-DMGs und hängt alles an ein
+# GitHub-Release. Trigger: Version-Tag (v1.2.3) pushen oder manuell starten.
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install dependencies
+        run: npm install
+      - name: Vendor assets (pdf.js, pdf-lib, icons, tesseract, tessdata)
+        run: node scripts/copy-vendor.js
+      - name: Build portable exe
+        run: npx electron-builder --win portable --publish never
+      - name: Upload to release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/*.exe
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: BIT-Nova-PDF-windows
+          path: release/*.exe
+          if-no-files-found: error
+
+  build-mac:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install dependencies
+        run: npm install
+      - name: Vendor assets
+        run: node scripts/copy-vendor.js
+      # Unsigniert: ohne die Variable sucht electron-builder eine Signing-Identity
+      # auf dem Runner und bricht ab, wenn keine existiert.
+      - name: Build DMG (arm64)
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+        run: npx electron-builder --mac dmg --arm64 --publish never
+      - name: Build DMG (x64)
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+        run: npx electron-builder --mac dmg --x64 --publish never
+      - name: Upload to release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/*.dmg
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: BIT-Nova-PDF-dmg
+          path: release/*.dmg
+          if-no-files-found: error

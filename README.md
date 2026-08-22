@@ -1,6 +1,6 @@
 <div align="center">
 
-# 📄 NovaPDF
+# 📄 BIT-Nova PDF
 
 ### Portabler PDF-Editor — vollständig lokal, keine Cloud, offline
 
@@ -15,9 +15,9 @@ Bearbeiten · Organisieren · Konvertieren · Signieren · Schwärzen — alles 
 
 ### ⬇️ Download
 
-[![Download macOS](https://img.shields.io/badge/Download-macOS%20(Apple%20Silicon)-000000?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/mozzi86/NovaPDF/releases/latest/download/NovaPDF-1.1.0-arm64.dmg)
+[![Download macOS](https://img.shields.io/badge/Download-macOS%20(Apple%20Silicon)-000000?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/mozzi86/NovaPDF/releases/latest/download/BIT-Nova-PDF-1.1.0-arm64.dmg)
 &nbsp;
-[![Download Windows](https://img.shields.io/badge/Download-Windows%20(portabel)-0078D6?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/mozzi86/NovaPDF/releases/latest)
+[![Download Windows](https://img.shields.io/badge/Download-Windows%20(portabel)-0078D6?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/mozzi86/NovaPDF/releases/latest/download/BIT-Nova-PDF-1.1.0-portable.exe)
 &nbsp;
 [![Alle Releases](https://img.shields.io/badge/Alle-Versionen-555555?style=for-the-badge&logo=github&logoColor=white)](https://github.com/mozzi86/NovaPDF/releases)
 
@@ -26,14 +26,14 @@ Bearbeiten · Organisieren · Konvertieren · Signieren · Schwärzen — alles 
 ---
 
 <div align="center">
-<img src="docs/home.png" alt="NovaPDF Startseite — Werkzeugraster" width="100%">
+<img src="docs/home.png" alt="BIT-Nova PDF Startseite — Werkzeugraster" width="100%">
 <br><br>
-<img src="docs/editor.png" alt="NovaPDF Editor — Checkliste mit grünen Haken" width="100%">
+<img src="docs/editor.png" alt="BIT-Nova PDF Editor — Checkliste mit grünen Haken" width="100%">
 </div>
 
 ---
 
-## Was NovaPDF kann
+## Was BIT-Nova PDF kann
 
 | 🗂️ Organisieren | 🔄 Konvertieren | ✏️ Bearbeiten | 🔒 Abschließen |
 |---|---|---|---|
@@ -63,9 +63,9 @@ Alle Werkzeuge laufen **vollständig lokal** im Electron-Prozess. Es gibt keinen
 
 ## Installation (macOS)
 
-1. DMG oben herunterladen und öffnen, NovaPDF in **Programme** ziehen.
-2. Beim ersten Start: **Rechtsklick auf NovaPDF → Öffnen** (die App ist nicht bei Apple notarisiert).
-3. PDF öffnen per **Drag & Drop ins Fenster**, über **Datei → Öffnen**, oder Rechtsklick → **Schnellaktionen → Mit NovaPDF öffnen**.
+1. DMG oben herunterladen und öffnen, BIT-Nova PDF in **Programme** ziehen.
+2. Beim ersten Start: **Rechtsklick auf BIT-Nova PDF → Öffnen** (die App ist nicht bei Apple notarisiert).
+3. PDF öffnen per **Drag & Drop ins Fenster**, über **Datei → Öffnen**, oder Rechtsklick → **Schnellaktionen → Mit BIT-Nova PDF öffnen**.
 
 ## Entwicklung
 
@@ -78,8 +78,8 @@ npm start       # App starten
 ## Eigene Builds
 
 ```bash
-npm run dist        # Windows: release/NovaPDF-1.1.0-portable.exe
-npm run dist:mac    # macOS:   release/NovaPDF-1.1.0-*.dmg
+npm run dist        # Windows: release/BIT-Nova-PDF-1.1.0-portable.exe
+npm run dist:mac    # macOS:   release/BIT-Nova-PDF-1.1.0-*.dmg
 ```
 
 Die portable Windows-`.exe` ist eigenständig — auf jeden Windows-Rechner oder USB-Stick kopierbar, keine Installation.

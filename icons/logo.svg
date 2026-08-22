@@ -49,7 +49,7 @@
   </g>
 
   <!-- NOVA wordmark -->
-  <text x="263" y="428" text-anchor="middle" font-family="'Segoe UI', Arial, sans-serif" font-size="54" font-weight="800" letter-spacing="14" fill="#dbe6ff">NOVA</text>
+  <text x="261" y="426" text-anchor="middle" font-family="'Segoe UI', Arial, sans-serif" font-size="46" font-weight="800" letter-spacing="10" fill="#dbe6ff">BIT NOVA</text>
 
   <!-- nova star burst -->
   <g filter="url(#starglow)">

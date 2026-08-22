@@ -1,7 +1,7 @@
 {
-  "name": "nova-pdf",
+  "name": "bit-nova-pdf",
   "version": "1.1.0",
-  "description": "NovaPDF — portable PDF editor (view, annotate, organize, forms, sign, edit)",
+  "description": "BIT-Nova PDF — portable PDF editor (view, annotate, organize, forms, sign, edit)",
   "author": "Schwarz Architekturbüro",
   "main": "main.js",
   "scripts": {
@@ -25,7 +25,7 @@
   },
   "build": {
     "appId": "de.schwarzarchitektur.novapdf",
-    "productName": "NovaPDF",
+    "productName": "BIT-Nova PDF",
     "directories": {
       "output": "release"
     },
@@ -70,7 +70,7 @@
       ]
     },
     "portable": {
-      "artifactName": "NovaPDF-${version}-portable.exe"
+      "artifactName": "BIT-Nova-PDF-${version}-portable.exe"
     },
     "mac": {
       "icon": "build/icon.icns",
@@ -102,7 +102,7 @@
       }
     },
     "dmg": {
-      "artifactName": "NovaPDF-${version}-${arch}.dmg"
+      "artifactName": "BIT-Nova-PDF-${version}-${arch}.dmg"
     }
   }
 }

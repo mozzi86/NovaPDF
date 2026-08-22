@@ -125,7 +125,7 @@ if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
       catch (e) { return { ok: false, error: e.message }; }
     },
     saveMany: async ({ files, subdir }) => {
-      try { const zip = makeZip(files); downloadBlob(new Blob([zip], { type: 'application/zip' }), (subdir || 'NovaPDF') + '.zip'); return { ok: true, path: (subdir || 'NovaPDF') + '.zip', count: files.length }; }
+      try { const zip = makeZip(files); downloadBlob(new Blob([zip], { type: 'application/zip' }), (subdir || 'BIT-Nova-PDF') + '.zip'); return { ok: true, path: (subdir || 'BIT-Nova-PDF') + '.zip', count: files.length }; }
       catch (e) { return { ok: false, error: e.message }; }
     },
     getRecent: async () => (await recentList()).map((r) => ({ path: r.id, name: r.name, time: r.time })),
