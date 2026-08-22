@@ -15,6 +15,26 @@ const Recent = {
     let a = this.get().filter((x) => x.path !== p);
     a.unshift({ path: p, name: path.basename(p), time: Date.now() });
     this.set(a.slice(0, 12));
+  },
+  // Bis v1.1.0 hieß die App "NovaPDF". userData leitet sich vom App-Namen ab und
+  // liegt seit der Umbenennung woanders, sonst starten Bestandsnutzer ohne
+  // "Zuletzt geöffnet". Beide alten Ordner prüfen: gepackt benennt Electron das
+  // Profil nach productName ("NovaPDF"), im Dev-Start nach name ("nova-pdf").
+  // Das alte Profil bleibt unangetastet — nur kopieren, damit ein Downgrade
+  // nichts verliert.
+  migrateLegacyProfile() {
+    try {
+      const dest = this.file();
+      if (fs.existsSync(dest)) return;
+      const appData = app.getPath('appData');
+      const legacy = ['NovaPDF', 'nova-pdf']
+        .map((n) => path.join(appData, n, 'recent.json'))
+        .find((f) => f !== dest && fs.existsSync(f));
+      if (!legacy) return;
+      fs.mkdirSync(path.dirname(dest), { recursive: true });
+      fs.copyFileSync(legacy, dest);
+      console.log('recent.json übernommen aus', legacy);
+    } catch {}
   }
 };
 
@@ -216,6 +236,6 @@ ipcMain.handle('ocr:page', async (_e, { png }) => {
 });
 app.on('before-quit', () => { if (ocrWorkerP) ocrWorkerP.then((w) => w.terminate()).catch(() => {}); });
 
-app.whenReady().then(createWindow);
+app.whenReady().then(() => { Recent.migrateLegacyProfile(); createWindow(); });
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
 app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
