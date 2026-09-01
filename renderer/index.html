@@ -11,6 +11,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="BIT-Nova PDF" />
   <link rel="manifest" href="../manifest.webmanifest" />
+  <link rel="icon" type="image/svg+xml" href="../icons/logo.svg" />
   <link rel="apple-touch-icon" href="../icons/apple-touch-icon-180.png" />
   <link rel="stylesheet" href="../vendor/phosphor/style.css" />
   <link rel="stylesheet" href="styles.css" />
@@ -19,7 +20,7 @@
   <!-- App header -->
   <header id="appbar">
     <button class="ghost brand-btn" data-act="home" title="Startseite">
-      <i class="ph ph-file-pdf"></i><span class="brand">BIT-Nova<b>PDF</b></span>
+      <img class="brand-logo" src="../icons/logo.svg" alt="" width="30" height="30" /><span class="brand">BIT-Nova<b>PDF</b></span>
     </button>
     <div id="editor-tools" class="hidden">
       <span class="doc-name" id="doc-name"></span>
@@ -34,8 +35,13 @@
   <!-- ============ HOME / LAUNCHER ============ -->
   <main id="home">
     <div class="home-inner">
-      <h1>Was möchten Sie tun?</h1>
-      <p class="lead">Alle Werkzeuge laufen vollständig lokal auf diesem Rechner. Nichts wird hochgeladen.</p>
+      <div class="home-brand">
+        <img class="home-logo" src="../icons/logo.svg" alt="BIT-Nova PDF" width="72" height="72" />
+        <div>
+          <h1>Was möchten Sie tun?</h1>
+          <p class="lead">Alle Werkzeuge laufen vollständig lokal auf diesem Rechner. Nichts wird hochgeladen.</p>
+        </div>
+      </div>
       <section id="recent-group" class="group hidden">
         <div class="group-head">
           <h2 class="group-title">Zuletzt geöffnet</h2>

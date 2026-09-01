@@ -9,7 +9,7 @@ const { PDFDocument, rgb, StandardFonts, degrees } = window.PDFLib;
 // ---------------- State ----------------
 const S = {
   pdfDoc: null, bytes: null, pdfjs: null,
-  zoom: 1.0, tool: 'cursor', color: '#ffd400', size: 3,
+  zoom: 1.0, lz: 1.0, tool: 'cursor', color: '#ffd400', size: 3,
   annos: {}, formValues: {}, vp1: [], textItems: [], fileName: 'dokument.pdf',
   selected: 0, undo: [], watermark: null, pageNumbers: null, stamp: null,
   sel: null // aktuell ausgewählte Annotation: { page, anno }
@@ -141,6 +141,24 @@ async function refresh(resetScroll = false) {
 
 // ---------------- Render ----------------
 let renderGen = 0; // guards against interleaved async re-renders (rapid zoom clicks)
+
+// Auflösung des Seiten-Canvas: Display-DPR mit leichtem Oversampling — das macht
+// Text auch bei 100 %/125 % Windows-Skalierung sauber. Gedeckelt, damit hoher Zoom
+// den Speicher nicht sprengt (4 x Zoom x DPR waeren sonst dreistellige MB pro Seite).
+const MAX_EDGE_PX = 4200;
+function renderScale(cssW, cssH) {
+  const q = Math.min((window.devicePixelRatio || 1) * 1.5, 3);
+  return Math.max(1, Math.min(q, MAX_EDGE_PX / Math.max(cssW, cssH)));
+}
+
+// Kontext des Annotations-Canvas, normiert auf CSS-Pixel: alle Zeichenroutinen
+// rechnen weiter in CSS-Koordinaten, das Canvas liegt aber in Geraetepixeln vor.
+function annoCtx(anno) {
+  const k = anno.width / (parseFloat(anno.style.width) || anno.width);
+  const ctx = anno.getContext('2d');
+  ctx.setTransform(k, 0, 0, k, 0, 0);
+  return ctx;
+}
 async function renderPages() {
   const gen = ++renderGen;
   const host = $('#pages'); host.innerHTML = ''; S.vp1 = []; S.textItems = [];
@@ -158,19 +176,29 @@ async function renderPages() {
       }).filter((t) => t.str && t.str.trim());
     } catch { S.textItems[i] = []; }
     const vp = page.getViewport({ scale: S.zoom });
-    const dpr = Math.min(window.devicePixelRatio || 1, 3); // render at native display resolution → crisp on HiDPI / Windows scaling
+    // Layout auf ganze CSS-Pixel runden: #pages zentriert die Seite (align-items:center),
+    // bei krummer Seitenbreite (A4 = 595.28 pt) landet das Canvas sonst auf einer halben
+    // Pixelspalte — dann resampelt der Compositor das ganze Bild und alles wirkt weich.
+    const cssW = Math.round(vp.width), cssH = Math.round(vp.height);
+    const q = renderScale(cssW, cssH);
     const wrap = el('div', 'page-wrap'); wrap.dataset.page = i;
-    wrap.style.width = vp.width + 'px'; wrap.style.height = vp.height + 'px';
+    wrap.style.width = cssW + 'px'; wrap.style.height = cssH + 'px';
     const canvas = el('canvas', 'pdf');
-    canvas.width = Math.round(vp.width * dpr); canvas.height = Math.round(vp.height * dpr);
-    canvas.style.width = vp.width + 'px'; canvas.style.height = vp.height + 'px';
+    canvas.width = Math.round(cssW * q); canvas.height = Math.round(cssH * q);
+    canvas.style.width = cssW + 'px'; canvas.style.height = cssH + 'px';
     wrap.appendChild(canvas);
-    await page.render({ canvasContext: canvas.getContext('2d'), viewport: vp, transform: dpr !== 1 ? [dpr, 0, 0, dpr, 0, 0] : undefined }).promise;
-    const anno = el('canvas', 'anno'); anno.width = vp.width; anno.height = vp.height; wrap.appendChild(anno);
+    // Inhalt exakt auf die Canvas-Pixel strecken (vp.width ist krumm, canvas.width nicht).
+    await page.render({ canvasContext: canvas.getContext('2d'), viewport: vp,
+      transform: [canvas.width / vp.width, 0, 0, canvas.height / vp.height, 0, 0] }).promise;
+    const anno = el('canvas', 'anno');
+    anno.width = canvas.width; anno.height = canvas.height;
+    anno.style.width = cssW + 'px'; anno.style.height = cssH + 'px';
+    wrap.appendChild(anno);
     const overlay = el('div', 'overlay'); overlay.dataset.page = i; wrap.appendChild(overlay);
     host.appendChild(wrap);
     drawAnnos(i); attachPageEvents(wrap, i);
   }
+  S.lz = S.zoom; // Zoomstufe, in der das aktuelle Layout steht (Anker fuer Strg+Rad)
   $('#zoom-label').textContent = Math.round(S.zoom * 100) + '%';
 }
 
@@ -251,7 +279,7 @@ function annosInRect(pageIndex, rx, ry, rw, rh) {
 function drawAnnos(pageIndex) {
   const wrap = document.querySelector(`.page-wrap[data-page="${pageIndex}"]`); if (!wrap) return;
   const anno = wrap.querySelector('canvas.anno'); const overlay = wrap.querySelector('.overlay');
-  const ctx = anno.getContext('2d'); ctx.clearRect(0, 0, anno.width, anno.height);
+  const ctx = annoCtx(anno); ctx.clearRect(0, 0, anno.width, anno.height);
   overlay.querySelectorAll('.anno-text').forEach((n) => n.remove());
   const z = S.zoom;
   for (const a of (S.annos[pageIndex] || [])) {
@@ -426,7 +454,7 @@ function attachPageEvents(wrap, pageIndex) {
     }
     dragState.cur = toLocal(e);
     const { start, cur } = dragState;
-    const ctx = anno.getContext('2d'), z = S.zoom;
+    const ctx = annoCtx(anno), z = S.zoom;
     if (S.tool === 'draw') { S.annos[pageIndex][S.annos[pageIndex].length - 1].points.push(cur); drawAnnos(pageIndex); }
     else {
       drawAnnos(pageIndex);
@@ -1355,7 +1383,28 @@ function setTool(t) {
     : t === 'marquee' ? ' — Rahmen aufziehen: erfasst alle Elemente darin; dann verschieben oder ⌫ löscht' : '';
   status('Werkzeug: ' + (TOOL_LABELS[t] || TOOLS.find((x) => x.id === t)?.label || t) + hint);
 }
-function zoom(d) { S.zoom = Math.min(4, Math.max(0.25, +(S.zoom + d).toFixed(2))); renderPages(); }
+const ZOOM_MIN = 0.25, ZOOM_MAX = 4;
+let zoomTimer = 0, zoomAnchor = null;
+// Zoom setzen. Ist `anchor` (Client-Koordinaten) gesetzt, bleibt der Punkt darunter stehen.
+// Das Neurendern wird gebuendelt, damit schnelles Radeln nicht jede Stufe rendert.
+function setZoom(z, anchor) {
+  z = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, +(+z).toFixed(3)));
+  if (z === S.zoom) return;
+  const v = $('#viewer');
+  if (anchor && !zoomAnchor) {
+    const r = v.getBoundingClientRect(), ax = anchor.x - r.left, ay = anchor.y - r.top;
+    zoomAnchor = { ax, ay, dx: (v.scrollLeft + ax) / (S.lz || 1), dy: (v.scrollTop + ay) / (S.lz || 1) };
+  }
+  S.zoom = z;
+  $('#zoom-label').textContent = Math.round(z * 100) + '%';
+  clearTimeout(zoomTimer);
+  zoomTimer = setTimeout(async () => {
+    const a = zoomAnchor; zoomAnchor = null;
+    await renderPages();
+    if (a) { v.scrollLeft = a.dx * S.zoom - a.ax; v.scrollTop = a.dy * S.zoom - a.ay; }
+  }, anchor ? 110 : 0);
+}
+function zoom(d) { setZoom(S.zoom + d); }
 function zoomFit() { if (!S.vp1[0]) return; S.zoom = +(($('#viewer').clientWidth - 64) / S.vp1[0].w).toFixed(2); renderPages(); }
 function closeMenus() { document.querySelectorAll('.menu').forEach((m) => m.classList.add('hidden')); }
 
@@ -1426,6 +1475,21 @@ function bind() {
   $('#cmp-next').onclick = () => { if (CMP && CMP.page < CMP.n - 1) { CMP.page++; renderCompare(); } };
   $('#cmp-mode').onchange = () => renderCompare();
   $('#cmp-close').onclick = () => { $('#compare-modal').classList.add('hidden'); CMP = null; status('Bereit'); };
+  // Strg/Cmd + Mausrad zoomt (statt Chromium-Seitenzoom); Ankerpunkt bleibt unterm Cursor.
+  $('#viewer').addEventListener('wheel', (e) => {
+    if (!e.ctrlKey && !e.metaKey) return;
+    e.preventDefault();
+    const step = e.deltaY < 0 ? 1.1 : 1 / 1.1;
+    setZoom(S.zoom * step, { x: e.clientX, y: e.clientY });
+  }, { passive: false });
+  // Strg + / - / 0 wie im Browser. Unter Electron erledigen das die Menue-Accelerators
+  // (CmdOrCtrl+= / - / 0) — dort nicht binden, sonst zoomt ein Tastendruck doppelt.
+  if (!/Electron/i.test(navigator.userAgent)) window.addEventListener('keydown', (e) => {
+    if (!(e.ctrlKey || e.metaKey)) return;
+    if (e.key === '+' || e.key === '=') { e.preventDefault(); setZoom(S.zoom * 1.1); }
+    else if (e.key === '-' || e.key === '_') { e.preventDefault(); setZoom(S.zoom / 1.1); }
+    else if (e.key === '0') { e.preventDefault(); zoomFit(); }
+  });
   // Entf/Backspace löscht die ausgewählte Annotation (nicht beim Tippen in Feldern)
   window.addEventListener('keydown', (e) => {
     if (e.key !== 'Delete' && e.key !== 'Backspace') return;

@@ -36,6 +36,7 @@ body {
 }
 .brand-btn { display: flex; align-items: center; gap: 9px; padding: 6px 8px; }
 .brand-btn .ph { font-size: 24px; color: var(--accent); }
+.brand-logo { width: 30px; height: 30px; border-radius: 7px; display: block; flex: none; }
 .brand { font-size: 19px; font-weight: 600; letter-spacing: .2px; }
 .brand b { font-weight: 800; color: var(--accent); }
 .doc-name { color: var(--muted); font-size: 14px; max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -68,8 +69,12 @@ button.primary:hover { background: #6ba0ff; border-color: #6ba0ff; }
 /* ---------- Home / launcher ---------- */
 #home { flex: 1; overflow-y: auto; }
 .home-inner { max-width: 1180px; margin: 0 auto; padding: 44px 32px 64px; }
+.home-brand { display: flex; align-items: center; gap: 18px; margin: 0 0 36px; }
+.home-logo { width: 72px; height: 72px; border-radius: 16px; flex: none; box-shadow: 0 8px 26px rgba(0,0,0,.45); }
 .home-inner h1 { font-size: 30px; font-weight: 700; letter-spacing: -0.4px; margin: 0 0 8px; }
 .home-inner .lead { color: var(--muted); margin: 0 0 36px; font-size: 15px; }
+.home-brand .lead { margin: 0; }
+.home-brand h1 { margin: 0 0 6px; }
 
 .group { margin-bottom: 38px; }
 .group-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
@@ -202,6 +207,8 @@ aside { background: var(--bg2); overflow-y: auto; flex-shrink: 0; }
   #pages { padding: 12px; }
 
   .home-inner { padding: 24px 16px 56px; }
+  .home-brand { gap: 12px; margin-bottom: 26px; }
+  .home-logo { width: 52px; height: 52px; border-radius: 12px; }
   .home-inner h1 { font-size: 23px; }
   .home-inner .lead { font-size: 14px; margin-bottom: 26px; }
   .tiles { grid-template-columns: 1fr 1fr; gap: 10px; }
