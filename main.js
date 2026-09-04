@@ -111,6 +111,7 @@ function buildMenu() {
         { label: 'Hinzufügen / Zusammenführen…', click: () => mainWindow.webContents.send('menu', 'add') },
         { type: 'separator' },
         { label: 'Speichern unter…', accelerator: 'CmdOrCtrl+S', click: () => mainWindow.webContents.send('menu', 'save') },
+        { label: 'Drucken…', accelerator: 'CmdOrCtrl+P', click: () => mainWindow.webContents.send('menu', 'print') },
         { type: 'separator' },
         { role: 'quit', label: 'Beenden' }
       ]

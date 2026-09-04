@@ -780,6 +780,59 @@ async function buildExport({ flatten = false, bakeAnnos = true } = {}) {
 
 const saveResultStatus = (res, okMsg) => status(res.ok ? okMsg + ': ' + res.path : (res.error ? 'Fehler beim Speichern: ' + res.error : 'Abgebrochen'));
 
+// ---------------- Drucken ----------------
+// Gedruckt wird ueber buildExport(), damit Anmerkungen, Formularwerte und
+// Schwaerzungen mit auf dem Papier landen und nicht nur die Originalseiten.
+// Die Seiten werden dafuer in eine eigene Druckflaeche gerastert; ein direkter
+// window.print() der App wuerde die Oberflaeche drucken, nicht das Dokument.
+const PRINT_DPI = 200;
+let printing = false;
+
+function printCleanup() {
+  const host = $('#print-area');
+  if (host) host.innerHTML = '';
+  printing = false;
+}
+
+async function printDoc() {
+  if (!S.pdfDoc || !S.bytes) { status('Kein Dokument geöffnet'); return; }
+  if (printing) return;
+  printing = true;
+  closeMenus();
+  try {
+    status('Druckansicht wird vorbereitet…');
+    const bytes = await buildExport({ flatten: false });
+    const doc = await pdfjsLib.getDocument({ data: bytes.slice(0) }).promise;
+    const host = $('#print-area'); host.innerHTML = '';
+    let first = null;
+    for (let i = 1; i <= doc.numPages; i++) {
+      const page = await doc.getPage(i);
+      const vp1 = page.getViewport({ scale: 1 });
+      if (!first) first = vp1;
+      const sc = Math.min(PRINT_DPI / 72, MAX_EDGE_PX / Math.max(vp1.width, vp1.height));
+      const vp = page.getViewport({ scale: sc });
+      const c = el('canvas'); c.width = Math.round(vp.width); c.height = Math.round(vp.height);
+      await page.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise;
+      const d = el('div', 'print-page'); d.appendChild(c); host.appendChild(d);
+      status(`Druckansicht: Seite ${i} von ${doc.numPages}…`);
+    }
+    // Papierformat aus der ersten Seite ableiten, sonst skaliert der Treiber auf A4.
+    let st = document.getElementById('print-size');
+    if (!st) { st = document.createElement('style'); st.id = 'print-size'; document.head.appendChild(st); }
+    const mm = (pt) => (pt * 25.4 / 72).toFixed(1) + 'mm';
+    st.textContent = `@page { size: ${mm(first.width)} ${mm(first.height)}; margin: 0; }`;
+    status('Druckdialog geöffnet');
+    window.print();
+    // Chromium blockiert in window.print() bis der Dialog zu ist; afterprint
+    // raeumt zusaetzlich auf, falls eine Umgebung sofort zurueckkehrt.
+    printCleanup();
+    status('Bereit');
+  } catch (e) {
+    printCleanup();
+    status('Fehler beim Drucken: ' + e.message);
+  }
+}
+
 async function saveAs(kind) {
   if (!S.pdfDoc) { status('Kein Dokument geöffnet'); return; }
   closeMenus();
@@ -1417,6 +1470,7 @@ async function doAct(act) {
     case 'tools-menu': { const m = $('#tools-menu'); const open = m.classList.contains('hidden'); closeMenus(); if (open) m.classList.remove('hidden'); break; }
     case 'forensic': await applyForensic(); break;
     case 'undo': await undo(); break;
+    case 'print': await printDoc(); break;
     case 'zoom-in': zoom(0.15); break;
     case 'zoom-out': zoom(-0.15); break;
   }
@@ -1486,7 +1540,8 @@ function bind() {
   // (CmdOrCtrl+= / - / 0) — dort nicht binden, sonst zoomt ein Tastendruck doppelt.
   if (!/Electron/i.test(navigator.userAgent)) window.addEventListener('keydown', (e) => {
     if (!(e.ctrlKey || e.metaKey)) return;
-    if (e.key === '+' || e.key === '=') { e.preventDefault(); setZoom(S.zoom * 1.1); }
+    if (e.key === 'p' || e.key === 'P') { e.preventDefault(); printDoc(); }
+    else if (e.key === '+' || e.key === '=') { e.preventDefault(); setZoom(S.zoom * 1.1); }
     else if (e.key === '-' || e.key === '_') { e.preventDefault(); setZoom(S.zoom / 1.1); }
     else if (e.key === '0') { e.preventDefault(); zoomFit(); }
   });
@@ -1503,6 +1558,7 @@ function bind() {
     drawAnnos(p);
     status(list.length > 1 ? `${list.length} Elemente gelöscht` : 'Element gelöscht');
   });
+  window.addEventListener('afterprint', printCleanup);
   buildToolsMenu();
   document.addEventListener('click', closeMenus);
 }
@@ -1523,7 +1579,7 @@ window.addEventListener('drop', async (e) => {
 
 // Menu + boot
 if (window.nova) {
-  window.nova.onMenu((action) => { if (action === 'home') showView('home'); else if (action === 'save') saveAs('pdf'); else if (action === 'find') $('#find').focus(); else if (action === 'zoom-fit') zoomFit(); else doAct(action); });
+  window.nova.onMenu((action) => { if (action === 'home') showView('home'); else if (action === 'save') saveAs('pdf'); else if (action === 'find') $('#find').focus(); else if (action === 'zoom-fit') zoomFit(); else if (action === 'print') printDoc(); else doAct(action); });
   window.nova.onOpenFileData(async ({ name, bytes }) => { await openAndShow(new Uint8Array(bytes), name); });
 }
 

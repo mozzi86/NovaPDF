@@ -65,6 +65,7 @@
           <div class="menu wide hidden" id="tools-menu"></div>
         </div>
         <button data-act="add" title="Weitere PDF anhängen"><i class="ph ph-file-plus"></i></button>
+        <button data-act="print" title="Drucken (Strg+P)"><i class="ph ph-printer"></i></button>
         <div class="menu-wrap">
           <button data-act="export-menu" class="primary"><i class="ph ph-floppy-disk"></i> Speichern <i class="ph ph-caret-down sm"></i></button>
           <div class="menu hidden" id="export-menu">
@@ -126,6 +127,9 @@
   </section>
 
   <footer id="statusbar"><span id="status">Bereit</span></footer>
+
+  <!-- Druckflaeche: nur im Druck sichtbar, wird vor jedem Druck neu gefuellt. -->
+  <div id="print-area"></div>
 
   <!-- Signature modal -->
   <div id="sign-modal" class="modal hidden">
