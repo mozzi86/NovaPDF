@@ -230,6 +230,67 @@ try {
   const isPng = files.length && files[0].bytes[0] === 0x89 && files[0].bytes[1] === 0x50;
   rec('PDF zu Bildern (PNG-Export)', files.length === 2 && isPng, files.map((f) => f.name).join(', '));
 
+  // --- Gruppe 6: Drucken (Seitenbereich + Auflösung) ---
+  // window.print() wird geshimmt: der Aufruf ist der einzige Moment, in dem die
+  // Druckflaeche gefuellt ist — printCleanup() leert sie direkt danach.
+  await drop(await mkDoc(3), 'druck.pdf');
+  let printCalls = 0, snap = null;
+  IW.print = () => {
+    printCalls++;
+    const cs = ID.querySelectorAll('#print-area .print-page canvas');
+    snap = {
+      pages: cs.length,
+      bufW: cs.length ? cs[0].width : 0,
+      cssW: cs.length ? cs[0].style.width : '',
+      cssWLast: cs.length ? cs[cs.length - 1].style.width : '',
+      atPage: (ID.querySelector('#print-size') || {}).textContent || ''
+    };
+  };
+
+  ID.querySelector('[data-act="print"]').click();
+  await promptOk(['2-3', '150']);
+  await wait(() => printCalls > 0, 40000);
+  rec('Drucken: Seitenbereich 2-3 rastert 2 Seiten', snap && snap.pages === 2, snap && String(snap.pages));
+  // 595 pt bei 150 dpi = 1240 px Pufferbreite; CSS-Breite bleibt 210 mm (A4)
+  rec('Drucken: Auflösung 150 dpi wirkt auf den Puffer', snap && Math.abs(snap.bufW - 1240) <= 3, snap && snap.bufW + ' px');
+  rec('Drucken: physische Größe in mm gesetzt', snap && /^209\.|^210\./.test(snap.cssW), snap && snap.cssW);
+  rec('Drucken: @page-Format aus der Seite', snap && /size:\s*209\.|size:\s*210\./.test(snap.atPage) && snap.atPage.includes('margin: 0'), snap && snap.atPage);
+  rec('Drucken: Druckfläche danach leer', ID.querySelectorAll('#print-area .print-page').length === 0);
+
+  const before300 = printCalls;
+  ID.querySelector('[data-act="print"]').click();
+  await promptOk([null, '300']);
+  await wait(() => printCalls > before300, 40000);
+  rec('Drucken: leerer Bereich = alle Seiten, 300 dpi', snap && snap.pages === 3 && Math.abs(snap.bufW - 2479) <= 4, snap && snap.pages + ' Seiten / ' + snap.bufW + ' px');
+
+  const beforeBad = printCalls;
+  ID.querySelector('[data-act="print"]').click();
+  await promptOk(['99']);
+  await waitStatus('Keine gültigen Seiten', 20000);
+  rec('Drucken: ungültiger Bereich bricht ab', printCalls === beforeBad && status().includes('Keine gültigen Seiten'), status());
+
+  ID.querySelector('[data-act="print"]').click();
+  await wait(() => !ID.querySelector('#prompt-modal').classList.contains('hidden'), 8000);
+  ID.querySelector('#prompt-cancel').click();
+  rec('Drucken: Abbrechen druckt nicht', printCalls === beforeBad);
+
+  // Gemischte Formate: A4 hoch + A3 quer. Die grosse Seite muss in das
+  // Blattformat der ersten Seite eingepasst werden, nicht darueber hinauslaufen.
+  {
+    const { PDFDocument } = IW.PDFLib;
+    const doc = await PDFDocument.create();
+    doc.addPage(A(595, 842)); doc.addPage(A(1191, 842));
+    await drop(await doc.save(), 'gemischt.pdf');
+    const beforeMix = printCalls; snap = null;
+    ID.querySelector('[data-act="print"]').click();
+    await promptOk([null, '150']);
+    await wait(() => printCalls > beforeMix, 40000);
+    const cssW = snap && parseFloat(snap.cssWLast);
+    // 1191 pt quer, eingepasst auf 595 pt Blattbreite -> ~209.9 mm, nicht ~420 mm
+    rec('Drucken: abweichendes Format wird eingepasst', snap && snap.pages === 2 && cssW < 211, snap && snap.cssWLast + ' / ' + snap.pages + ' Seiten');
+    rec('Drucken: Hinweis auf abweichende Formate', status().includes('eingepasst'), status());
+  }
+
   rec('GESAMT', RESULTS.tests.every((t) => t.pass || t.name === 'GESAMT'), RESULTS.tests.filter((t) => t.pass).length + '/' + RESULTS.tests.length);
 } catch (e) {
   rec('RUNNER-ABBRUCH', false, e.message + ' @ ' + (e.stack || '').split('\n')[1]);

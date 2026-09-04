@@ -146,6 +146,8 @@ let renderGen = 0; // guards against interleaved async re-renders (rapid zoom cl
 // Text auch bei 100 %/125 % Windows-Skalierung sauber. Gedeckelt, damit hoher Zoom
 // den Speicher nicht sprengt (4 x Zoom x DPR waeren sonst dreistellige MB pro Seite).
 const MAX_EDGE_PX = 4200;
+// PDF-Punkte -> mm, fuer physisch korrekte Druckgroessen
+const mmOf = (pt) => (pt * 25.4 / 72).toFixed(2) + 'mm';
 function renderScale(cssW, cssH) {
   const q = Math.min((window.devicePixelRatio || 1) * 1.5, 3);
   return Math.max(1, Math.min(q, MAX_EDGE_PX / Math.max(cssW, cssH)));
@@ -785,8 +787,12 @@ const saveResultStatus = (res, okMsg) => status(res.ok ? okMsg + ': ' + res.path
 // Schwaerzungen mit auf dem Papier landen und nicht nur die Originalseiten.
 // Die Seiten werden dafuer in eine eigene Druckflaeche gerastert; ein direkter
 // window.print() der App wuerde die Oberflaeche drucken, nicht das Dokument.
-const PRINT_DPI = 200;
+const PRINT_DPI_MIN = 72, PRINT_DPI_MAX = 600;
 let printing = false;
+// Auflösung merken (bleibt pro Nutzer meist gleich). Die Seitenauswahl NICHT
+// merken — ein stehengebliebener Bereich wuerde beim naechsten Druck still
+// Seiten unterschlagen.
+const printPrefs = { dpi: '200' };
 
 function printCleanup() {
   const host = $('#print-area');
@@ -797,36 +803,62 @@ function printCleanup() {
 async function printDoc() {
   if (!S.pdfDoc || !S.bytes) { status('Kein Dokument geöffnet'); return; }
   if (printing) return;
-  printing = true;
   closeMenus();
+  const total = S.pdfDoc.getPageCount();
+  const a = await showPrompt({ title: 'Drucken', fields: [
+    { key: 'pages', label: 'Seiten (leer = alle)', placeholder: 'z. B. 1,3-5', hint: `Dokument hat ${total} ${total === 1 ? 'Seite' : 'Seiten'}` },
+    { key: 'dpi', label: 'Auflösung', type: 'select', value: printPrefs.dpi, options: [
+      { value: '150', label: '150 dpi — Entwurf, schnell' },
+      { value: '200', label: '200 dpi — Standard' },
+      { value: '300', label: '300 dpi — hohe Qualität' },
+      { value: '400', label: '400 dpi — Plan/Feinlinien' }
+    ] }
+  ] });
+  if (!a) return;
+  printPrefs.dpi = a.dpi;
+  const dpi = Math.min(PRINT_DPI_MAX, Math.max(PRINT_DPI_MIN, parseInt(a.dpi, 10) || 200));
+  printing = true;
   try {
     status('Druckansicht wird vorbereitet…');
     const bytes = await buildExport({ flatten: false });
     const doc = await pdfjsLib.getDocument({ data: bytes.slice(0) }).promise;
+    // Seitenauswahl erst gegen das Exportdokument pruefen — es kann durch
+    // Loeschen/Anhaengen eine andere Seitenzahl haben als die Ansicht.
+    const idx = a.pages.trim() ? parseRanges(a.pages, doc.numPages) : [...Array(doc.numPages).keys()];
+    if (!idx.length) { printCleanup(); status('Keine gültigen Seiten angegeben'); return; }
     const host = $('#print-area'); host.innerHTML = '';
-    let first = null;
-    for (let i = 1; i <= doc.numPages; i++) {
-      const page = await doc.getPage(i);
+    // Papierformat aus der ersten gedruckten Seite; grössere Seiten werden
+    // darauf eingepasst, sonst zerlegt der Treiber sie auf mehrere Blaetter.
+    let box = null, mixed = false;
+    for (let n = 0; n < idx.length; n++) {
+      const page = await doc.getPage(idx[n] + 1);
       const vp1 = page.getViewport({ scale: 1 });
-      if (!first) first = vp1;
-      const sc = Math.min(PRINT_DPI / 72, MAX_EDGE_PX / Math.max(vp1.width, vp1.height));
+      if (!box) box = { w: vp1.width, h: vp1.height };
+      else if (Math.abs(vp1.width - box.w) > 1 || Math.abs(vp1.height - box.h) > 1) mixed = true;
+      const sc = Math.min(dpi / 72, MAX_EDGE_PX / Math.max(vp1.width, vp1.height));
       const vp = page.getViewport({ scale: sc });
       const c = el('canvas'); c.width = Math.round(vp.width); c.height = Math.round(vp.height);
       await page.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise;
+      // Physische Groesse in mm setzen, damit 1 PDF-Punkt = 1 Punkt auf Papier
+      // bleibt; k schrumpft abweichende Formate in das Blatt hinein.
+      const k = Math.min(box.w / vp1.width, box.h / vp1.height, 1);
+      c.style.width = mmOf(vp1.width * k); c.style.height = mmOf(vp1.height * k);
       const d = el('div', 'print-page'); d.appendChild(c); host.appendChild(d);
-      status(`Druckansicht: Seite ${i} von ${doc.numPages}…`);
+      status(`Druckansicht: Seite ${n + 1} von ${idx.length}…`);
     }
-    // Papierformat aus der ersten Seite ableiten, sonst skaliert der Treiber auf A4.
     let st = document.getElementById('print-size');
     if (!st) { st = document.createElement('style'); st.id = 'print-size'; document.head.appendChild(st); }
-    const mm = (pt) => (pt * 25.4 / 72).toFixed(1) + 'mm';
-    st.textContent = `@page { size: ${mm(first.width)} ${mm(first.height)}; margin: 0; }`;
-    status('Druckdialog geöffnet');
+    st.textContent = `@page { size: ${mmOf(box.w)} ${mmOf(box.h)}; margin: 0; }`;
+    // Kein "gedruckt" behaupten — ob der Nutzer im Dialog abbricht, sagt uns
+    // window.print() nicht. Der Formathinweis muss die Meldung ueberleben.
+    const note = `${idx.length} ${idx.length === 1 ? 'Seite' : 'Seiten'}, ${dpi} dpi`
+      + (mixed ? ' — abweichende Seitenformate wurden eingepasst' : '');
+    status('Druckdialog geöffnet — ' + note);
     window.print();
     // Chromium blockiert in window.print() bis der Dialog zu ist; afterprint
     // raeumt zusaetzlich auf, falls eine Umgebung sofort zurueckkehrt.
     printCleanup();
-    status('Bereit');
+    status('Druckdialog geschlossen — ' + note);
   } catch (e) {
     printCleanup();
     status('Fehler beim Drucken: ' + e.message);
