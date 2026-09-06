@@ -201,7 +201,7 @@ async function renderPages() {
     drawAnnos(i); attachPageEvents(wrap, i);
   }
   S.lz = S.zoom; // Zoomstufe, in der das aktuelle Layout steht (Anker fuer Strg+Rad)
-  $('#zoom-label').textContent = Math.round(S.zoom * 100) + '%';
+  syncZoomUi(S.zoom);
 }
 
 let thumbGen = 0; // same interleaving guard as renderPages
@@ -800,6 +800,61 @@ function printCleanup() {
   printing = false;
 }
 
+// Eigene Druckvorschau. Electron liefert Chromium ohne Druckvorschau aus, also
+// landet window.print() direkt im Windows-Dialog — und der schreibt "Diese App
+// unterstuetzt keine Seitenansicht", weil Electron ihm keine liefert. Diese
+// Vorschau zeichnet aus denselben Canvas-Puffern, die gleich gedruckt werden,
+// nur verkleinert: sie zeigt also das echte Ergebnis, nicht eine Nachbildung.
+const PREVIEW_MAX_W = 760;
+
+function buildPreview(note) {
+  const strip = $('#preview-pages');
+  strip.innerHTML = '';
+  // Auch die Hoehe deckeln, sonst fuellt ein Hochformat-Blatt das ganze Fenster
+  // und man sieht nicht, dass darunter weitere Seiten liegen.
+  const maxH = Math.max(240, Math.round(window.innerHeight * 0.56));
+  const sources = [...document.querySelectorAll('#print-area .print-page canvas')];
+  sources.forEach((src, i) => {
+    const k = Math.min(PREVIEW_MAX_W / src.width, maxH / src.height, 1);
+    const c = el('canvas');
+    c.width = Math.max(1, Math.round(src.width * k));
+    c.height = Math.max(1, Math.round(src.height * k));
+    c.getContext('2d').drawImage(src, 0, 0, c.width, c.height);
+    const sheet = el('div', 'preview-sheet'); sheet.appendChild(c);
+    const cap = el('div', 'preview-cap'); cap.textContent = `Seite ${i + 1} von ${sources.length}`;
+    const item = el('div', 'preview-item'); item.appendChild(sheet); item.appendChild(cap);
+    strip.appendChild(item);
+  });
+  $('#preview-note').textContent = note;
+  return sources.length;
+}
+
+function showPrintPreview(note) {
+  buildPreview(note);
+  const modal = $('#print-preview');
+  modal.classList.remove('hidden');
+  $('#preview-pages').scrollTop = 0;
+  return new Promise((resolve) => {
+    const done = (v) => {
+      modal.classList.add('hidden');
+      $('#preview-pages').innerHTML = ''; // verkleinerte Puffer sofort freigeben
+      $('#preview-print').removeEventListener('click', onPrint);
+      $('#preview-cancel').removeEventListener('click', onCancel);
+      document.removeEventListener('keydown', onKey, true);
+      resolve(v);
+    };
+    const onPrint = () => done(true);
+    const onCancel = () => done(false);
+    const onKey = (e) => {
+      if (e.key === 'Escape') { e.preventDefault(); done(false); }
+      else if (e.key === 'Enter') { e.preventDefault(); done(true); }
+    };
+    $('#preview-print').addEventListener('click', onPrint);
+    $('#preview-cancel').addEventListener('click', onCancel);
+    document.addEventListener('keydown', onKey, true);
+  });
+}
+
 async function printDoc() {
   if (!S.pdfDoc || !S.bytes) { status('Kein Dokument geöffnet'); return; }
   if (printing) return;
@@ -853,6 +908,12 @@ async function printDoc() {
     // window.print() nicht. Der Formathinweis muss die Meldung ueberleben.
     const note = `${idx.length} ${idx.length === 1 ? 'Seite' : 'Seiten'}, ${dpi} dpi`
       + (mixed ? ' — abweichende Seitenformate wurden eingepasst' : '');
+    // Erst zeigen, dann drucken. Papiermass gehoert in die Vorschau, weil der
+    // Windows-Dialog die Ausrichtung aus den Treibereinstellungen anzeigt und
+    // nicht die des Dokuments.
+    status('Druckvorschau');
+    const go = await showPrintPreview(`${note} · Blatt ${mmOf(box.w)} × ${mmOf(box.h)}`);
+    if (!go) { printCleanup(); status('Druck abgebrochen — ' + note); return; }
     status('Druckdialog geöffnet — ' + note);
     window.print();
     // Chromium blockiert in window.print() bis der Dialog zu ist; afterprint
@@ -1472,16 +1533,28 @@ const ZOOM_MIN = 0.25, ZOOM_MAX = 4;
 let zoomTimer = 0, zoomAnchor = null;
 // Zoom setzen. Ist `anchor` (Client-Koordinaten) gesetzt, bleibt der Punkt darunter stehen.
 // Das Neurendern wird gebuendelt, damit schnelles Radeln nicht jede Stufe rendert.
+// Der Schieber laeuft logarithmisch: linear saesse 100 % bei einem Fuenftel des
+// Wegs, weil der Bereich 25–400 % nach oben viel weiter reicht als nach unten.
+// So liegt 100 % genau in der Mitte und jeder Schritt aendert prozentual gleich viel.
+const ZOOM_STEPS = 1000;
+const zoomToSlider = (z) => Math.round(ZOOM_STEPS * Math.log(z / ZOOM_MIN) / Math.log(ZOOM_MAX / ZOOM_MIN));
+const sliderToZoom = (t) => ZOOM_MIN * Math.pow(ZOOM_MAX / ZOOM_MIN, t / ZOOM_STEPS);
+function syncZoomUi(z) {
+  $('#zoom-label').textContent = Math.round(z * 100) + '%';
+  const sl = $('#zoom-slider');
+  if (sl) sl.value = String(zoomToSlider(z));
+}
+
 function setZoom(z, anchor) {
   z = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, +(+z).toFixed(3)));
-  if (z === S.zoom) return;
+  if (z === S.zoom) { syncZoomUi(S.zoom); return; } // Schieber zurueckschnappen lassen
   const v = $('#viewer');
   if (anchor && !zoomAnchor) {
     const r = v.getBoundingClientRect(), ax = anchor.x - r.left, ay = anchor.y - r.top;
     zoomAnchor = { ax, ay, dx: (v.scrollLeft + ax) / (S.lz || 1), dy: (v.scrollTop + ay) / (S.lz || 1) };
   }
   S.zoom = z;
-  $('#zoom-label').textContent = Math.round(z * 100) + '%';
+  syncZoomUi(z);
   clearTimeout(zoomTimer);
   zoomTimer = setTimeout(async () => {
     const a = zoomAnchor; zoomAnchor = null;
@@ -1554,6 +1627,8 @@ function bind() {
   document.querySelectorAll('[data-export]').forEach((b) => b.onclick = () => saveAs(b.dataset.export));
   $('#color').oninput = (e) => { S.color = e.target.value; };
   $('#size').oninput = (e) => { S.size = +e.target.value; };
+  $('#zoom-slider').oninput = (e) => setZoom(sliderToZoom(+e.target.value));
+  $('#zoom-slider').ondblclick = () => setZoom(1);
   $('#search').addEventListener('input', (e) => renderTiles(e.target.value));
   $('#find').addEventListener('keydown', (e) => { if (e.key === 'Enter') search($('#find').value); });
   $('#recent-clear').onclick = async (e) => { e.stopPropagation(); if (window.nova) await window.nova.clearRecent(); renderRecent(); };

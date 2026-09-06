@@ -55,6 +55,9 @@ const status = () => ID.querySelector('#status').textContent;
 const wait = async (cond, ms = 20000) => { const t0 = Date.now(); while (Date.now() - t0 < ms) { if (cond()) return true; await new Promise((r) => setTimeout(r, 150)); } return false; };
 const waitStatus = (s, ms) => wait(() => status().includes(s), ms);
 const tool = (label) => { const b = [...ID.querySelectorAll('#tools-menu button')].find((x) => x.textContent.includes(label)); if (!b) throw new Error('Tool fehlt: ' + label); b.click(); };
+const previewShown = () => !ID.querySelector('#print-preview').classList.contains('hidden');
+const previewWait = () => wait(previewShown, 40000);
+const previewOk = async () => { await previewWait(); ID.querySelector('#preview-print').click(); };
 const promptOk = async (vals) => {
   await wait(() => !ID.querySelector('#prompt-modal').classList.contains('hidden'), 8000);
   const ins = ID.querySelectorAll('#prompt-body input, #prompt-body select');
@@ -217,6 +220,28 @@ try {
   await wait(() => ID.querySelector('#zoom-label').textContent !== z0, 15000);
   rec('Zoom', ID.querySelector('#zoom-label').textContent !== z0, z0 + ' → ' + ID.querySelector('#zoom-label').textContent);
 
+  // Zoom-Schieber: logarithmisch, deshalb muss die Mitte genau 100 % treffen.
+  {
+    const sl = ID.querySelector('#zoom-slider');
+    const setSlider = async (v, want) => {
+      sl.value = String(v);
+      sl.dispatchEvent(new IW.Event('input', { bubbles: true }));
+      await wait(() => ID.querySelector('#zoom-label').textContent === want, 15000);
+      return ID.querySelector('#zoom-label').textContent;
+    };
+    const mid = await setSlider(500, '100%');
+    rec('Zoom-Schieber: Mitte ist 100 %', mid === '100%', mid);
+    const max = await setSlider(1000, '400%');
+    rec('Zoom-Schieber: Anschlag oben ist 400 %', max === '400%', max);
+    const min = await setSlider(0, '25%');
+    rec('Zoom-Schieber: Anschlag unten ist 25 %', min === '25%', min);
+    // Der Schieber muss der Zahl folgen, wenn woanders gezoomt wird.
+    ID.querySelector('[data-act="zoom-in"]').click();
+    await wait(() => ID.querySelector('#zoom-label').textContent !== '25%', 15000);
+    rec('Zoom-Schieber folgt den Knöpfen', +sl.value > 0, sl.value + ' / ' + ID.querySelector('#zoom-label').textContent);
+    await setSlider(500, '100%');
+  }
+
   // --- Gruppe 5: Bilder→PDF und PDF→Bilder ---
   imageQueue.push({ name: 'b1.png', ext: '.png', bytes: mkPng('#2050e0') }, { name: 'b2.png', ext: '.png', bytes: mkPng('#20a040') });
   tool('Bilder zu PDF');
@@ -249,6 +274,12 @@ try {
 
   ID.querySelector('[data-act="print"]').click();
   await promptOk(['2-3', '150']);
+  await previewWait();
+  const shownSheets = ID.querySelectorAll('#preview-pages .preview-sheet canvas').length;
+  const previewNote = ID.querySelector('#preview-note').textContent;
+  rec('Drucken: Vorschau zeigt beide Seiten', shownSheets === 2, shownSheets + ' Blätter');
+  rec('Drucken: Vorschau nennt das Blattmaß', /Blatt 2(09|10)\./.test(previewNote), previewNote);
+  ID.querySelector('#preview-print').click();
   await wait(() => printCalls > 0, 40000);
   rec('Drucken: Seitenbereich 2-3 rastert 2 Seiten', snap && snap.pages === 2, snap && String(snap.pages));
   // 595 pt bei 150 dpi = 1240 px Pufferbreite; CSS-Breite bleibt 210 mm (A4)
@@ -256,10 +287,13 @@ try {
   rec('Drucken: physische Größe in mm gesetzt', snap && /^209\.|^210\./.test(snap.cssW), snap && snap.cssW);
   rec('Drucken: @page-Format aus der Seite', snap && /size:\s*209\.|size:\s*210\./.test(snap.atPage) && snap.atPage.includes('margin: 0'), snap && snap.atPage);
   rec('Drucken: Druckfläche danach leer', ID.querySelectorAll('#print-area .print-page').length === 0);
+  rec('Drucken: Vorschau danach geschlossen und geleert',
+      !previewShown() && ID.querySelectorAll('#preview-pages canvas').length === 0);
 
   const before300 = printCalls;
   ID.querySelector('[data-act="print"]').click();
   await promptOk([null, '300']);
+  await previewOk();
   await wait(() => printCalls > before300, 40000);
   rec('Drucken: leerer Bereich = alle Seiten, 300 dpi', snap && snap.pages === 3 && Math.abs(snap.bufW - 2479) <= 4, snap && snap.pages + ' Seiten / ' + snap.bufW + ' px');
 
@@ -274,6 +308,18 @@ try {
   ID.querySelector('#prompt-cancel').click();
   rec('Drucken: Abbrechen druckt nicht', printCalls === beforeBad);
 
+  // Abbrechen in der Vorschau: gerastert wurde schon, gedruckt werden darf nicht.
+  {
+    const beforePrev = printCalls;
+    ID.querySelector('[data-act="print"]').click();
+    await promptOk([null, '150']);
+    await previewWait();
+    ID.querySelector('#preview-cancel').click();
+    await waitStatus('Druck abgebrochen', 8000);
+    rec('Drucken: Abbruch in der Vorschau druckt nicht',
+        printCalls === beforePrev && ID.querySelectorAll('#print-area .print-page').length === 0, status());
+  }
+
   // Gemischte Formate: A4 hoch + A3 quer. Die grosse Seite muss in das
   // Blattformat der ersten Seite eingepasst werden, nicht darueber hinauslaufen.
   {
@@ -284,6 +330,7 @@ try {
     const beforeMix = printCalls; snap = null;
     ID.querySelector('[data-act="print"]').click();
     await promptOk([null, '150']);
+    await previewOk();
     await wait(() => printCalls > beforeMix, 40000);
     const cssW = snap && parseFloat(snap.cssWLast);
     // 1191 pt quer, eingepasst auf 595 pt Blattbreite -> ~209.9 mm, nicht ~420 mm

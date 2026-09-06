@@ -112,6 +112,8 @@
         <button data-act="zoom-out" title="Verkleinern"><i class="ph ph-minus"></i></button>
         <span id="zoom-label">100%</span>
         <button data-act="zoom-in" title="Vergrößern"><i class="ph ph-plus"></i></button>
+        <!-- Logarithmisch skaliert, damit 100 % genau in der Mitte sitzt. -->
+        <input type="range" id="zoom-slider" min="0" max="1000" value="500" title="Zoom (Doppelklick: 100 %)" />
       </div>
       <div class="grow"></div>
       <div class="tgroup">
@@ -176,6 +178,21 @@
   </div>
 
   <!-- Generic prompt modal -->
+  <!-- Druckvorschau. Electron liefert Chromium ohne Druckvorschau aus, und der
+       Windows-Dialog meldet "Diese App unterstuetzt keine Seitenansicht". Diese
+       hier zeigt genau die Bildpunkte, die gleich aufs Papier gehen. -->
+  <div id="print-preview" class="modal hidden">
+    <div class="modal-box preview-box">
+      <h3>Druckvorschau</h3>
+      <div id="preview-note"></div>
+      <div id="preview-pages"></div>
+      <div class="modal-actions">
+        <button id="preview-cancel" class="ghost">Abbrechen</button>
+        <button id="preview-print" class="primary"><i class="ph ph-printer"></i>Drucken</button>
+      </div>
+    </div>
+  </div>
+
   <div id="prompt-modal" class="modal hidden">
     <div class="modal-box">
       <h3 id="prompt-title">Eingabe</h3>

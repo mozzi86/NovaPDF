@@ -120,6 +120,7 @@ button.tiny { font-size: 12px; padding: 4px 9px; color: var(--muted); }
 #toolbar input[type="color"] { width: 32px; height: 30px; border: none; background: none; padding: 0; cursor: pointer; }
 #toolbar input[type="range"] { width: 84px; }
 #zoom-label { min-width: 46px; text-align: center; color: var(--muted); font-variant-numeric: tabular-nums; }
+#toolbar #zoom-slider { width: 112px; }
 
 .menu-wrap { position: relative; }
 .menu { position: absolute; top: calc(100% + 6px); left: 0; z-index: 30; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-ctl); padding: 6px; min-width: 230px; box-shadow: 0 12px 36px rgba(0,0,0,.5); display: flex; flex-direction: column; gap: 2px; }
@@ -191,6 +192,20 @@ aside { background: var(--bg2); overflow-y: auto; flex-shrink: 0; }
 #prompt-body input, #prompt-body select { width: 100%; background: var(--bg); border: 1px solid var(--line); color: var(--txt); border-radius: 8px; padding: 8px 10px; outline: none; }
 #prompt-body input:focus, #prompt-body select:focus { border-color: var(--accent); }
 #prompt-body .hint { color: var(--muted2); font-size: 12px; margin-top: 6px; }
+
+/* ---------- Druckvorschau ---------- */
+.preview-box { width: min(980px, 94vw); max-height: 92vh; display: flex; flex-direction: column; }
+#preview-note { color: var(--muted); font-size: 12.5px; margin: -8px 0 12px; }
+#preview-pages {
+  flex: 1; min-height: 0; overflow: auto;
+  background: var(--bg); border: 1px solid var(--line); border-radius: 12px;
+  padding: 18px; display: flex; flex-direction: column; align-items: center; gap: 18px;
+}
+.preview-item { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+/* Weisses Blatt mit Schatten — die Canvas traegt keinen eigenen Hintergrund. */
+.preview-sheet { background: #fff; box-shadow: 0 6px 20px rgba(0,0,0,.45); }
+.preview-sheet canvas { display: block; }
+.preview-cap { color: var(--muted2); font-size: 12px; }
 
 /* ---------- Compare ---------- */
 .compare-box { width: min(1280px, 94vw); max-height: 94vh; display: flex; flex-direction: column; }
