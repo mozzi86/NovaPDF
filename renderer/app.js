@@ -1609,10 +1609,25 @@ window.addEventListener('drop', async (e) => {
   }
 });
 
+// Update-Hinweis. Nur der Hauptprozess spricht mit dem Netz — hier wird nur
+// angezeigt. Ausblenden gilt fuer diese Sitzung; beim naechsten Start ist der
+// Streifen wieder da, solange die alte Version laeuft.
+function showUpdateBar({ version, current }) {
+  const bar = $('#update-bar');
+  if (!bar) return;
+  $('#update-text').textContent = `Version ${version} ist verfügbar — Sie verwenden ${current}.`;
+  bar.classList.remove('hidden');
+}
+
 // Menu + boot
 if (window.nova) {
   window.nova.onMenu((action) => { if (action === 'home') showView('home'); else if (action === 'save') saveAs('pdf'); else if (action === 'find') $('#find').focus(); else if (action === 'zoom-fit') zoomFit(); else if (action === 'print') printDoc(); else doAct(action); });
   window.nova.onOpenFileData(async ({ name, bytes }) => { await openAndShow(new Uint8Array(bytes), name); });
+  if (window.nova.onUpdateAvailable) {
+    window.nova.onUpdateAvailable(showUpdateBar);
+    $('#update-download').addEventListener('click', () => { window.nova.downloadUpdate(); status('Download-Seite im Browser geöffnet'); });
+    $('#update-dismiss').addEventListener('click', () => $('#update-bar').classList.add('hidden'));
+  }
 }
 
 bind(); renderTiles(); renderRecent(); showView('home');

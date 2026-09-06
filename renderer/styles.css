@@ -41,6 +41,16 @@ body {
 .brand b { font-weight: 800; color: var(--accent); }
 .doc-name { color: var(--muted); font-size: 14px; max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+/* ---------- Update-Hinweis ---------- */
+#update-bar {
+  display: flex; align-items: center; gap: 10px; flex-shrink: 0;
+  padding: 8px 18px; font-size: 13.5px; color: #cfe0ff;
+  background: var(--accent-soft); border-bottom: 1px solid var(--accent);
+}
+#update-bar > .ph { color: var(--accent); font-size: 19px; }
+#update-bar button.tiny { color: inherit; }
+#update-bar button.primary.tiny { color: #08122a; }
+
 /* ---------- Buttons ---------- */
 button {
   font: inherit; color: var(--txt); cursor: pointer;

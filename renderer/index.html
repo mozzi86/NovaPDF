@@ -32,6 +32,17 @@
     </div>
   </header>
 
+  <!-- Update-Hinweis. Nur unter Electron: main.js meldet sich, wenn das
+       GitHub-Release neuer ist als die laufende Version. Die PWA aktualisiert
+       sich selbst ueber den Service Worker und braucht den Streifen nicht. -->
+  <div id="update-bar" class="hidden">
+    <i class="ph ph-arrow-circle-down"></i>
+    <span id="update-text"></span>
+    <div class="grow"></div>
+    <button class="primary tiny" id="update-download">Herunterladen</button>
+    <button class="ghost tiny" id="update-dismiss" title="Hinweis ausblenden"><i class="ph ph-x"></i></button>
+  </div>
+
   <!-- ============ HOME / LAUNCHER ============ -->
   <main id="home">
     <div class="home-inner">

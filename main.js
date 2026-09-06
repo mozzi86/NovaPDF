@@ -38,6 +38,57 @@ const Recent = {
   }
 };
 
+// ---- Update check ----------------------------------------------------------
+// The portable build cannot replace itself: it runs from a temp unpack dir, does
+// not know where its own .exe was put, and here that place is Program Files,
+// which needs admin rights. So this only NOTIFIES — ask GitHub for the latest
+// release, compare tags, let the renderer show a bar with a download button.
+// No document data leaves the machine and a failed request is silently ignored,
+// so the app stays usable with no network at all.
+const UPDATE_API = 'https://api.github.com/repos/mozzi86/NovaPDF/releases/latest';
+const UPDATE_PAGE = 'https://github.com/mozzi86/NovaPDF/releases/latest';
+
+function fetchLatestRelease() {
+  return new Promise((resolve, reject) => {
+    const req = require('https').get(UPDATE_API, {
+      headers: { 'User-Agent': 'BIT-Nova-PDF/' + app.getVersion(), Accept: 'application/vnd.github+json' },
+      timeout: 8000
+    }, (res) => {
+      if (res.statusCode !== 200) { res.resume(); reject(new Error('HTTP ' + res.statusCode)); return; }
+      let body = '';
+      res.setEncoding('utf8');
+      res.on('data', (c) => { body += c; if (body.length > 512 * 1024) req.destroy(new Error('Antwort zu groß')); });
+      res.on('end', () => { try { resolve(JSON.parse(body)); } catch (e) { reject(e); } });
+    });
+    req.on('timeout', () => req.destroy(new Error('Zeitüberschreitung')));
+    req.on('error', reject);
+  });
+}
+
+// Part by part and numeric, so 1.1.10 counts as newer than 1.1.9.
+function isNewer(remote, local) {
+  const parts = (v) => String(v).replace(/^v/, '').split('.').map((n) => parseInt(n, 10) || 0);
+  const a = parts(remote), b = parts(local);
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    if ((a[i] || 0) !== (b[i] || 0)) return (a[i] || 0) > (b[i] || 0);
+  }
+  return false;
+}
+
+async function checkForUpdate() {
+  const current = app.getVersion();
+  try {
+    const rel = await fetchLatestRelease();
+    const version = String(rel.tag_name || '').replace(/^v/, '');
+    if (!version) throw new Error('Release ohne tag_name');
+    if (!isNewer(version, current)) return { state: 'current', version, current };
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('update-available', { version, current });
+    return { state: 'update', version, current };
+  } catch (e) {
+    return { state: 'error', error: e.message, current };
+  }
+}
+
 function createWindow() {
   rendererReady = false;
   // Fenster-/Taskleisten-Icon. Die .ico/.icns der Installer erzeugt
@@ -68,6 +119,8 @@ function createWindow() {
 
   mainWindow.webContents.once('did-finish-load', () => {
     rendererReady = true;
+    // Erst das Fenster benutzbar machen, dann nach Updates sehen.
+    setTimeout(() => { checkForUpdate().catch(() => {}); }, 2500);
     // macOS: Datei aus Finder-Doppelklick (open-file kam vor dem Fensteraufbau)
     if (pendingOpen) { sendOpenFile(pendingOpen); pendingOpen = null; return; }
     // Windows/Linux/CLI: Datei als Programmargument
@@ -138,7 +191,18 @@ function buildMenu() {
     {
       label: 'Hilfe',
       submenu: [
-        { label: 'Über BIT-Nova PDF', click: () => dialog.showMessageBox(mainWindow, { type: 'info', title: 'BIT-Nova PDF', message: 'BIT-Nova PDF', detail: 'Portabler PDF-Editor\nView · Annotate · Organize · Forms · Sign · Edit\n\nBIT-Atelier · Schwarz Architekturbüro' }) }
+        {
+          label: 'Nach Updates suchen…',
+          click: async () => {
+            const r = await checkForUpdate();
+            if (r.state === 'update') return; // der Hinweisstreifen im Fenster sagt schon Bescheid
+            dialog.showMessageBox(mainWindow, r.state === 'current'
+              ? { type: 'info', title: 'Update', message: 'BIT-Nova PDF ist aktuell.', detail: 'Installiert: ' + r.current }
+              : { type: 'warning', title: 'Update', message: 'Prüfung nicht möglich.', detail: 'Installiert: ' + r.current + '\n' + r.error });
+          }
+        },
+        { type: 'separator' },
+        { label: 'Über BIT-Nova PDF', click: () => dialog.showMessageBox(mainWindow, { type: 'info', title: 'BIT-Nova PDF', message: 'BIT-Nova PDF ' + app.getVersion(), detail: 'Portabler PDF-Editor\nView · Annotate · Organize · Forms · Sign · Edit\n\nIhre Dokumente verlassen diesen Rechner nicht. Beim Start fragt das Programm einmal bei github.com nach, ob eine neuere Version vorliegt — dabei werden keine Dateien oder Dokumentdaten übertragen.\n\nBIT-Atelier · Schwarz Architekturbüro' }) }
       ]
     }
   ];
@@ -169,6 +233,11 @@ ipcMain.handle('recent:read', (_e, p) => {
   catch (e) { return { missing: true }; }
 });
 ipcMain.handle('recent:clear', () => { Recent.set([]); return true; });
+
+// Update: der Renderer darf NICHT sagen, welche Adresse geöffnet wird — er
+// verarbeitet fremde PDFs. Das Ziel steht deshalb fest im Hauptprozess.
+ipcMain.handle('update:check', () => checkForUpdate());
+ipcMain.handle('update:download', () => { shell.openExternal(UPDATE_PAGE); return true; });
 
 ipcMain.handle('dialog:openImage', async (_e, { multi } = {}) => {
   const res = await dialog.showOpenDialog(mainWindow, {

@@ -9,6 +9,9 @@ contextBridge.exposeInMainWorld('nova', {
   getRecent: () => ipcRenderer.invoke('recent:get'),
   readRecent: (p) => ipcRenderer.invoke('recent:read', p),
   clearRecent: () => ipcRenderer.invoke('recent:clear'),
+  checkUpdate: () => ipcRenderer.invoke('update:check'),
+  downloadUpdate: () => ipcRenderer.invoke('update:download'),
+  onUpdateAvailable: (cb) => ipcRenderer.on('update-available', (_e, info) => cb(info)),
   onMenu: (cb) => ipcRenderer.on('menu', (_e, action) => cb(action)),
   onOpenFileData: (cb) => ipcRenderer.on('open-file-data', (_e, data) => cb(data))
 });
