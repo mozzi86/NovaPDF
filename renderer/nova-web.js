@@ -4,8 +4,24 @@
 // Android, iOS/iPadOS, Windows tablets and every desktop browser.
 // Register the service worker for offline/installable PWA (skipped under
 // Electron's file:// protocol, where service workers aren't available).
+// update() on every start asks the server for a newer worker; when a new one
+// takes over (skipWaiting + clients.claim in sw.js) the page still runs the old
+// scripts, so reload once. Without this an installed PWA keeps serving whatever
+// build it was installed with.
 if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
-  window.addEventListener('load', () => navigator.serviceWorker.register('../sw.js').catch(() => {}));
+  window.addEventListener('load', async () => {
+    const hadController = !!navigator.serviceWorker.controller;
+    let reloading = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (reloading || !hadController) return; // first install: nothing to refresh
+      reloading = true;
+      location.reload();
+    });
+    try {
+      const reg = await navigator.serviceWorker.register('../sw.js');
+      await reg.update();
+    } catch (err) { /* offline or blocked — keep running from cache */ }
+  });
 }
 
 (function () {
