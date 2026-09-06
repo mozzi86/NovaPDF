@@ -6,6 +6,9 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const ROOT = process.argv[2];
+// Cache-Name aus sw.js lesen, nicht festverdrahten — sonst schlaegt der Test
+// bei jedem Versionsbump an, obwohl das Verhalten stimmt.
+const EXPECTED_CACHE = 'bit-nova-pdf-' + (fs.readFileSync(path.join(process.argv[2], 'sw.js'), 'utf8').match(/const VERSION = '([^']+)'/) || [,'?'])[1];
 const PW = process.argv[3];
 const pw = await import(pathToFileURL(path.join(PW, 'index.js')).href);
 const chromium = pw.chromium || pw.default?.chromium;
@@ -46,7 +49,7 @@ await page.waitForFunction(() => navigator.serviceWorker.controller !== null, nu
 await page.reload({ waitUntil: 'load' });
 
 const keys = await page.evaluate(() => caches.keys());
-console.log('Cache-Namen nach activate:', JSON.stringify(keys));
+console.log('Cache-Namen nach activate:', JSON.stringify(keys), '| erwartet:', EXPECTED_CACHE);
 
 const first = await page.evaluate(async (b) => (await fetch(b + '/renderer/styles.css')).text().then((t) => t.slice(-40)), base);
 console.log('styles.css beim ersten Start  :', JSON.stringify(first.trim()));
@@ -66,7 +69,7 @@ const offline = await page.evaluate(async (b) => {
 console.log('styles.css offline            :', JSON.stringify(offline.trim()));
 await ctx.setOffline(false);
 
-const ok = keys.length === 1 && keys[0] === 'bit-nova-pdf-1.1.8'
+const ok = keys.length === 1 && keys[0] === EXPECTED_CACHE
   && !first.includes('STALE') && second.includes('BUILD-B-NEU') && offline.includes('BUILD-B-NEU');
 console.log(ok ? 'ERGEBNIS: OK' : 'ERGEBNIS: FEHLGESCHLAGEN');
 await browser.close(); server.close();

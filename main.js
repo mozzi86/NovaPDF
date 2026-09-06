@@ -38,6 +38,19 @@ const Recent = {
   }
 };
 
+// Settings live next to recent.json in userData, so they survive an update of
+// the portable exe and work even when the app sits in a read-only folder.
+const Settings = {
+  defaults: { updateCheck: true },
+  file: () => path.join(app.getPath('userData'), 'settings.json'),
+  get() { try { return { ...this.defaults, ...JSON.parse(fs.readFileSync(this.file(), 'utf8')) }; } catch { return { ...this.defaults }; } },
+  set(patch) {
+    const next = { ...this.get(), ...patch };
+    try { fs.mkdirSync(path.dirname(this.file()), { recursive: true }); fs.writeFileSync(this.file(), JSON.stringify(next)); } catch {}
+    return next;
+  }
+};
+
 // ---- Update check ----------------------------------------------------------
 // The portable build cannot replace itself: it runs from a temp unpack dir, does
 // not know where its own .exe was put, and here that place is Program Files,
@@ -119,8 +132,9 @@ function createWindow() {
 
   mainWindow.webContents.once('did-finish-load', () => {
     rendererReady = true;
-    // Erst das Fenster benutzbar machen, dann nach Updates sehen.
-    setTimeout(() => { checkForUpdate().catch(() => {}); }, 2500);
+    // Erst das Fenster benutzbar machen, dann nach Updates sehen. Wer den
+    // Schalter im Hilfe-Menü ausschaltet, löst gar keine Abfrage mehr aus.
+    if (Settings.get().updateCheck) setTimeout(() => { checkForUpdate().catch(() => {}); }, 2500);
     // macOS: Datei aus Finder-Doppelklick (open-file kam vor dem Fensteraufbau)
     if (pendingOpen) { sendOpenFile(pendingOpen); pendingOpen = null; return; }
     // Windows/Linux/CLI: Datei als Programmargument
@@ -192,7 +206,15 @@ function buildMenu() {
       label: 'Hilfe',
       submenu: [
         {
-          label: 'Nach Updates suchen…',
+          label: 'Beim Start nach Updates suchen',
+          type: 'checkbox',
+          checked: Settings.get().updateCheck,
+          click: (item) => { Settings.set({ updateCheck: item.checked }); }
+        },
+        {
+          // Bleibt auch bei ausgeschalteter Startprüfung nutzbar: hier fragt
+          // der Nutzer selbst, das ist etwas anderes als eine Abfrage von allein.
+          label: 'Jetzt nach Updates suchen…',
           click: async () => {
             const r = await checkForUpdate();
             if (r.state === 'update') return; // der Hinweisstreifen im Fenster sagt schon Bescheid
@@ -202,7 +224,7 @@ function buildMenu() {
           }
         },
         { type: 'separator' },
-        { label: 'Über BIT-Nova PDF', click: () => dialog.showMessageBox(mainWindow, { type: 'info', title: 'BIT-Nova PDF', message: 'BIT-Nova PDF ' + app.getVersion(), detail: 'Portabler PDF-Editor\nView · Annotate · Organize · Forms · Sign · Edit\n\nIhre Dokumente verlassen diesen Rechner nicht. Beim Start fragt das Programm einmal bei github.com nach, ob eine neuere Version vorliegt — dabei werden keine Dateien oder Dokumentdaten übertragen.\n\nBIT-Atelier · Schwarz Architekturbüro' }) }
+        { label: 'Über BIT-Nova PDF', click: () => dialog.showMessageBox(mainWindow, { type: 'info', title: 'BIT-Nova PDF', message: 'BIT-Nova PDF ' + app.getVersion(), detail: 'Portabler PDF-Editor\nView · Annotate · Organize · Forms · Sign · Edit\n\nIhre Dokumente verlassen diesen Rechner nicht. Beim Start fragt das Programm einmal bei github.com nach, ob eine neuere Version vorliegt — dabei werden keine Dateien oder Dokumentdaten übertragen. Diese Abfrage lässt sich im Menü Hilfe abschalten.\n\nBIT-Atelier · Schwarz Architekturbüro' }) }
       ]
     }
   ];
