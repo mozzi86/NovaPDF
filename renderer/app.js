@@ -12,8 +12,17 @@ const S = {
   zoom: 1.0, lz: 1.0, tool: 'cursor', color: '#ffd400', size: 3,
   annos: {}, formValues: {}, vp1: [], textItems: [], fileName: 'dokument.pdf',
   selected: 0, undo: [], watermark: null, pageNumbers: null, stamp: null,
-  sel: null // aktuell ausgewählte Annotation: { page, anno }
+  sel: null, // aktuell ausgewählte Annotation: { page, anno }
+  // Rand/Füllung für Rechteck und Ellipse (Leiste „Form"), siehe shapeStyle()
+  shape: { stroke: true, fillOn: false, fillColor: '#4d8dff', alpha: 0.35 }
 };
+// Die Werte, die eine neu gezogene Form mitbekommt.
+const shapeStyle = () => ({
+  color: S.color,
+  stroke: S.shape.stroke,
+  fill: S.shape.fillOn ? S.shape.fillColor : null,
+  fillA: S.shape.alpha
+});
 
 const $ = (s) => document.querySelector(s);
 const el = (tag, cls) => { const e = document.createElement(tag); if (cls) e.className = cls; return e; };
@@ -249,7 +258,43 @@ function annoBBox(a) {
     return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
   }
   if (a.type === 'text') return { x: a.x, y: a.y, w: Math.max(20, (a.text || '').length * a.size * 0.5), h: a.size * 1.3 };
-  return { x: a.x, y: a.y, w: a.w, h: a.h }; // rect, highlight, redact, cover, image, sign
+  // Linie und Pfeil speichern w/h als VORZEICHENBEHAFTETE Differenz zum Endpunkt,
+  // damit die Richtung erhalten bleibt — der Umriss muss das normalisieren.
+  if (a.type === 'line' || a.type === 'arrow') {
+    return { x: Math.min(a.x, a.x + a.w), y: Math.min(a.y, a.y + a.h), w: Math.abs(a.w), h: Math.abs(a.h) };
+  }
+  return { x: a.x, y: a.y, w: a.w, h: a.h }; // rect, ellipse, highlight, redact, cover, image, sign
+}
+// Rechteck und Ellipse teilen sich Fuellung und Rand — einmal gezeichnet, damit
+// Vorschau beim Ziehen und fertiges Element garantiert gleich aussehen.
+// Koordinaten sind Bildschirmpixel, lw ist die schon skalierte Strichstaerke.
+function paintShape(ctx, type, x, y, w, h, st, lw) {
+  const ellipse = () => { ctx.beginPath(); ctx.ellipse(x + w / 2, y + h / 2, Math.abs(w / 2), Math.abs(h / 2), 0, 0, Math.PI * 2); };
+  if (st.fill) {
+    ctx.save();
+    ctx.globalAlpha = st.fillA == null ? 1 : st.fillA;
+    ctx.fillStyle = st.fill;
+    if (type === 'ellipse') { ellipse(); ctx.fill(); } else ctx.fillRect(x, y, w, h);
+    ctx.restore();
+  }
+  if (st.stroke !== false) {
+    ctx.strokeStyle = st.color; ctx.lineWidth = lw;
+    if (type === 'ellipse') { ellipse(); ctx.stroke(); } else ctx.strokeRect(x, y, w, h);
+  }
+}
+
+// Endpunkte einer Linie/eines Pfeils, plus die beiden Schenkel der Spitze.
+function arrowGeom(a) {
+  const x2 = a.x + a.w, y2 = a.y + a.h;
+  const ang = Math.atan2(a.h, a.w);
+  const len = Math.hypot(a.w, a.h);
+  const hl = Math.min(Math.max(8, a.size * 4), len);           // Spitze nie laenger als der Schaft
+  const spread = Math.PI / 7;
+  return {
+    x1: a.x, y1: a.y, x2, y2,
+    hx1: x2 - hl * Math.cos(ang - spread), hy1: y2 - hl * Math.sin(ang - spread),
+    hx2: x2 - hl * Math.cos(ang + spread), hy2: y2 - hl * Math.sin(ang + spread)
+  };
 }
 function moveAnno(a, dx, dy) {
   if (a.type === 'draw') a.points = a.points.map((p) => ({ x: p.x + dx, y: p.y + dy }));
@@ -289,7 +334,19 @@ function drawAnnos(pageIndex) {
       ctx.strokeStyle = a.color; ctx.lineWidth = a.size * z; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.beginPath();
       a.points.forEach((p, k) => { const x = p.x * z, y = p.y * z; k ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }); ctx.stroke();
     } else if (a.type === 'highlight') { ctx.globalAlpha = .35; ctx.fillStyle = a.color; ctx.fillRect(a.x * z, a.y * z, a.w * z, a.h * z); ctx.globalAlpha = 1; }
-    else if (a.type === 'rect') { ctx.strokeStyle = a.color; ctx.lineWidth = a.size * z; ctx.strokeRect(a.x * z, a.y * z, a.w * z, a.h * z); }
+    else if (a.type === 'rect' || a.type === 'ellipse') {
+      paintShape(ctx, a.type, a.x * z, a.y * z, a.w * z, a.h * z, a, a.size * z);
+    }
+    else if (a.type === 'line' || a.type === 'arrow') {
+      const g = arrowGeom(a);
+      ctx.strokeStyle = a.color; ctx.lineWidth = a.size * z; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+      ctx.beginPath(); ctx.moveTo(g.x1 * z, g.y1 * z); ctx.lineTo(g.x2 * z, g.y2 * z); ctx.stroke();
+      if (a.type === 'arrow') {
+        ctx.beginPath();
+        ctx.moveTo(g.hx1 * z, g.hy1 * z); ctx.lineTo(g.x2 * z, g.y2 * z); ctx.lineTo(g.hx2 * z, g.hy2 * z);
+        ctx.stroke();
+      }
+    }
     else if (a.type === 'redact') { ctx.fillStyle = '#000'; ctx.fillRect(a.x * z, a.y * z, a.w * z, a.h * z); }
     else if (a.type === 'cover') { ctx.fillStyle = '#fff'; ctx.fillRect(a.x * z, a.y * z, a.w * z, a.h * z); }
     else if (a.type === 'check') {
@@ -390,9 +447,22 @@ window.addEventListener('mouseup', () => {
     status(picked.length ? `${picked.length} Element(e) markiert — verschieben oder ⌫ löscht` : 'Nichts im Rahmen');
     return;
   }
-  if (['highlight', 'rect', 'redact'].includes(S.tool) && start && cur) {
+  if (['highlight', 'rect', 'ellipse', 'redact'].includes(S.tool) && start && cur) {
     const x = Math.min(start.x, cur.x), y = Math.min(start.y, cur.y), w = Math.abs(cur.x - start.x), h = Math.abs(cur.y - start.y);
-    if (w > 3 && h > 3) (S.annos[pageIndex] = S.annos[pageIndex] || []).push({ type: S.tool, x, y, w, h, color: S.color, size: S.size });
+    if (w > 3 && h > 3) {
+      const a = { type: S.tool, x, y, w, h, color: S.color, size: S.size };
+      // Fuellung und Rand werden am Element festgehalten, nicht global — sonst
+      // wuerde ein spaeterer Reglerwechsel alte Formen mit veraendern.
+      if (S.tool === 'rect' || S.tool === 'ellipse') Object.assign(a, shapeStyle());
+      (S.annos[pageIndex] = S.annos[pageIndex] || []).push(a);
+    }
+    drawAnnos(pageIndex);
+  }
+  // Linie/Pfeil behalten ihre Richtung: w/h sind die Differenz zum Endpunkt,
+  // nicht die Kantenlaengen eines normalisierten Rechtecks.
+  if ((S.tool === 'line' || S.tool === 'arrow') && start && cur) {
+    const w = cur.x - start.x, h = cur.y - start.y;
+    if (Math.hypot(w, h) > 4) (S.annos[pageIndex] = S.annos[pageIndex] || []).push({ type: S.tool, x: start.x, y: start.y, w, h, color: S.color, size: S.size });
     drawAnnos(pageIndex);
   }
 });
@@ -400,8 +470,8 @@ window.addEventListener('mouseup', () => {
 function attachPageEvents(wrap, pageIndex) {
   const anno = wrap.querySelector('canvas.anno');
   const toLocal = (e) => { const r = anno.getBoundingClientRect(); return { x: (e.clientX - r.left) / S.zoom, y: (e.clientY - r.top) / S.zoom }; };
-  const drawTool = () => ['highlight', 'draw', 'text', 'rect', 'redact'].includes(S.tool);
-  const clickTool = () => ['image', 'sign', 'edittext', 'check'].includes(S.tool);
+  const drawTool = () => ['highlight', 'draw', 'text', 'rect', 'ellipse', 'line', 'arrow', 'redact'].includes(S.tool);
+  const clickTool = () => ['image', 'sign', 'edittext', 'check', 'pipette'].includes(S.tool);
   // Pfeil- und Markierungsrahmen-Werkzeug brauchen die Canvas ebenfalls
   const setPE = () => { anno.style.pointerEvents = (drawTool() || clickTool() || S.tool === 'cursor' || S.tool === 'marquee') ? 'auto' : 'none'; };
   setPE(); wrap._setPE = setPE;
@@ -463,7 +533,19 @@ function attachPageEvents(wrap, pageIndex) {
       const x = Math.min(start.x, cur.x) * z, y = Math.min(start.y, cur.y) * z, w = Math.abs(cur.x - start.x) * z, h = Math.abs(cur.y - start.y) * z;
       if (S.tool === 'highlight') { ctx.globalAlpha = .35; ctx.fillStyle = S.color; ctx.fillRect(x, y, w, h); ctx.globalAlpha = 1; }
       else if (S.tool === 'redact') { ctx.fillStyle = '#000'; ctx.fillRect(x, y, w, h); }
-      else if (S.tool === 'rect') { ctx.strokeStyle = S.color; ctx.lineWidth = S.size * z; ctx.strokeRect(x, y, w, h); }
+      else if (S.tool === 'rect' || S.tool === 'ellipse') { paintShape(ctx, S.tool, x, y, w, h, shapeStyle(), S.size * z); }
+      else if (S.tool === 'line' || S.tool === 'arrow') {
+        // Vorschau ueber dieselbe Geometrie wie das fertige Element, damit das
+        // Losgelassene genau so aussieht wie das Gezogene.
+        const g = arrowGeom({ x: start.x, y: start.y, w: cur.x - start.x, h: cur.y - start.y, size: S.size });
+        ctx.strokeStyle = S.color; ctx.lineWidth = S.size * z; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+        ctx.beginPath(); ctx.moveTo(g.x1 * z, g.y1 * z); ctx.lineTo(g.x2 * z, g.y2 * z); ctx.stroke();
+        if (S.tool === 'arrow') {
+          ctx.beginPath();
+          ctx.moveTo(g.hx1 * z, g.hy1 * z); ctx.lineTo(g.x2 * z, g.y2 * z); ctx.lineTo(g.hx2 * z, g.hy2 * z);
+          ctx.stroke();
+        }
+      }
     }
   });
   anno.addEventListener('click', (e) => {
@@ -471,9 +553,33 @@ function attachPageEvents(wrap, pageIndex) {
     else if (S.tool === 'sign') openSign(pageIndex, toLocal(e));
     else if (S.tool === 'edittext') editTextAt(pageIndex, toLocal(e), wrap);
     else if (S.tool === 'check') placeCheck(pageIndex, toLocal(e));
+    else if (S.tool === 'pipette') pickColor(wrap, toLocal(e));
   });
 }
 function refreshPE() { document.querySelectorAll('.page-wrap').forEach((w) => w._setPE && w._setPE()); }
+
+// Pipette: Farbe aus dem Dokument aufnehmen. Gelesen wird aus den bereits
+// gerenderten Canvas der Seite — erst die Anmerkungsebene, denn was oben liegt,
+// ist das, was der Nutzer anklickt; ist sie dort durchsichtig, die PDF-Ebene.
+// Kein Rueckgriff auf die EyeDropper-API: die gibt es nicht ueberall, sie fragt
+// den ganzen Bildschirm ab statt das Dokument, und sie braucht eine Extra-Geste.
+let pipetteReturn = 'cursor';
+function pickColor(wrap, pt) {
+  const pdfC = wrap.querySelector('canvas.pdf'), annoC = wrap.querySelector('canvas.anno');
+  // Seiten-Koordinate -> Geraetepixel der Canvas (die rendert mit Faktor q).
+  const q = pdfC.width / (pdfC.clientWidth || 1) * S.zoom;
+  const px = Math.round(pt.x * q), py = Math.round(pt.y * q);
+  if (px < 0 || py < 0 || px >= pdfC.width || py >= pdfC.height) { status('Außerhalb der Seite'); return; }
+  const read = (c) => { try { return c.getContext('2d', { willReadFrequently: true }).getImageData(px, py, 1, 1).data; } catch { return null; } };
+  const top = read(annoC);
+  const src = (top && top[3] > 16) ? top : read(pdfC);
+  if (!src) { status('Farbe konnte nicht gelesen werden'); return; }
+  const hex = '#' + [src[0], src[1], src[2]].map((v) => v.toString(16).padStart(2, '0')).join('');
+  S.color = hex;
+  const inp = $('#color'); if (inp) inp.value = hex;
+  setTool(pipetteReturn);
+  status('Farbe aufgenommen: ' + hex.toUpperCase());
+}
 
 // Grüner Prüfhaken — Größe folgt dem Strichstärke-Regler
 function placeCheck(pageIndex, pt) {
@@ -718,7 +824,32 @@ async function buildExport({ flatten = false, bakeAnnos = true } = {}) {
     const dw = R % 180 ? height : width, dh = R % 180 ? width : height; // displayed dims
     if (bakeAnnos) for (const a of (S.annos[i] || [])) {
       if (a.type === 'highlight') { const r = vpRect(a, width, height, R); page.drawRectangle({ x: r.x, y: r.y, width: r.w, height: r.h, color: hexToRgb(a.color), opacity: .35 }); }
-      else if (a.type === 'rect') { const r = vpRect(a, width, height, R); page.drawRectangle({ x: r.x, y: r.y, width: r.w, height: r.h, borderColor: hexToRgb(a.color), borderWidth: a.size, opacity: 0 }); }
+      else if (a.type === 'rect') {
+        const r = vpRect(a, width, height, R);
+        const o = { x: r.x, y: r.y, width: r.w, height: r.h, opacity: a.fill ? (a.fillA == null ? 1 : a.fillA) : 0 };
+        if (a.fill) o.color = hexToRgb(a.fill);
+        // stroke ist bei Altbestand undefined — das hiess damals „Rand an".
+        if (a.stroke !== false) { o.borderColor = hexToRgb(a.color); o.borderWidth = a.size; }
+        page.drawRectangle(o);
+      }
+      else if (a.type === 'ellipse') {
+        // Ueber den gedrehten Umriss, damit die Ellipse auf gedrehten Seiten
+        // sitzt wie am Bildschirm. opacity 0 = keine Fuellung, wie beim Rechteck.
+        const r = vpRect(a, width, height, R);
+        const o = { x: r.x + r.w / 2, y: r.y + r.h / 2, xScale: r.w / 2, yScale: r.h / 2, opacity: a.fill ? (a.fillA == null ? 1 : a.fillA) : 0 };
+        if (a.fill) o.color = hexToRgb(a.fill);
+        if (a.stroke !== false) { o.borderColor = hexToRgb(a.color); o.borderWidth = a.size; }
+        page.drawEllipse(o);
+      }
+      else if (a.type === 'line' || a.type === 'arrow') {
+        const g = arrowGeom(a), col = hexToRgb(a.color);
+        const p1 = vpPoint(g.x1, g.y1, width, height, R), p2 = vpPoint(g.x2, g.y2, width, height, R);
+        page.drawLine({ start: p1, end: p2, thickness: a.size, color: col });
+        if (a.type === 'arrow') {
+          page.drawLine({ start: vpPoint(g.hx1, g.hy1, width, height, R), end: p2, thickness: a.size, color: col });
+          page.drawLine({ start: vpPoint(g.hx2, g.hy2, width, height, R), end: p2, thickness: a.size, color: col });
+        }
+      }
       else if (a.type === 'redact') { const r = vpRect(a, width, height, R); page.drawRectangle({ x: r.x, y: r.y, width: r.w, height: r.h, color: rgb(0, 0, 0) }); }
       else if (a.type === 'cover') { const r = vpRect(a, width, height, R); page.drawRectangle({ x: r.x, y: r.y, width: r.w, height: r.h, color: rgb(1, 1, 1) }); }
       else if (a.type === 'check') {
@@ -1519,11 +1650,32 @@ async function opUnlock() {
 }
 
 // ---------------- Toolbar / menus ----------------
-const TOOL_LABELS = { cursor: 'Auswählen', marquee: 'Markierungsrahmen', highlight: 'Markieren', draw: 'Zeichnen', text: 'Textfeld', rect: 'Rechteck', redact: 'Schwärzen', check: 'Grüner Haken', edittext: 'Text bearbeiten', image: 'Bild einfügen', sign: 'Unterschrift' };
+const TOOL_LABELS = { cursor: 'Auswählen', marquee: 'Markierungsrahmen', highlight: 'Markieren', draw: 'Zeichnen', text: 'Textfeld', rect: 'Rechteck', ellipse: 'Kreis / Ellipse', line: 'Linie', arrow: 'Pfeil', pipette: 'Pipette', redact: 'Schwärzen', check: 'Grüner Haken', edittext: 'Text bearbeiten', image: 'Bild einfügen', sign: 'Unterschrift' };
+// Leiste „Form" an den Zustand angleichen; sie zeigt sich nur bei Rechteck und
+// Ellipse, denn Linie und Pfeil haben keine Flaeche zum Fuellen.
+function syncShapeUi() {
+  const box = $('#shape-opts'); if (!box) return;
+  box.classList.toggle('hidden', S.tool !== 'rect' && S.tool !== 'ellipse');
+  box.classList.toggle('no-fill', !S.shape.fillOn);
+  $('#shape-stroke').classList.toggle('active', S.shape.stroke);
+  $('#shape-fill-on').classList.toggle('active', S.shape.fillOn);
+  $('#shape-fill').value = S.shape.fillColor;
+  $('#shape-alpha').value = String(Math.round(S.shape.alpha * 100));
+  $('#shape-alpha-label').textContent = Math.round(S.shape.alpha * 100) + ' %';
+}
+
 function setTool(t) {
   const prev = S.tool; S.tool = t;
+  // Nach dem Aufnehmen einer Farbe soll das vorherige Werkzeug zurueckkommen —
+  // eine Pipette ist ein Zwischengriff, kein Zustand, in dem man arbeitet.
+  if (t === 'pipette') pipetteReturn = (prev === 'pipette' ? 'cursor' : prev);
   if (t !== 'cursor' && t !== 'marquee' && S.sel) { const p = S.sel.page; S.sel = null; drawAnnos(p); } // Auswahl beim Wechsel aufheben
   document.querySelectorAll('#tool-buttons button').forEach((b) => b.classList.toggle('active', b.dataset.tool === t));
+  // Eigener Attributname: 'data-tool' gehoert den Werkzeugknoepfen, und
+  // bind() haengt an JEDES [data-tool] einen Klick-Handler — das Body-Element
+  // waere sonst ein zweiter, unsichtbarer Umschalter.
+  document.body.dataset.activeTool = t; // nur fuer den Mauszeiger, siehe styles.css
+  syncShapeUi();
   refreshPE();
   const hint = t === 'cursor' ? ' — Element anklicken zum Auswählen, ziehen zum Verschieben, ⌫ löscht'
     : t === 'marquee' ? ' — Rahmen aufziehen: erfasst alle Elemente darin; dann verschieben oder ⌫ löscht' : '';
@@ -1629,6 +1781,21 @@ function bind() {
   $('#size').oninput = (e) => { S.size = +e.target.value; };
   $('#zoom-slider').oninput = (e) => setZoom(sliderToZoom(+e.target.value));
   $('#zoom-slider').ondblclick = () => setZoom(1);
+  // Form-Optionen
+  $('#shape-stroke').onclick = () => {
+    // Rand aus UND keine Fuellung waere eine unsichtbare Form — dann die
+    // Fuellung mit einschalten, statt den Nutzer ins Leere laufen zu lassen.
+    if (S.shape.stroke && !S.shape.fillOn) { S.shape.fillOn = true; status('Ohne Rand braucht die Form eine Füllung — eingeschaltet.'); }
+    S.shape.stroke = !S.shape.stroke;
+    syncShapeUi();
+  };
+  $('#shape-fill-on').onclick = () => {
+    if (S.shape.fillOn && !S.shape.stroke) { S.shape.stroke = true; status('Ohne Füllung braucht die Form einen Rand — eingeschaltet.'); }
+    S.shape.fillOn = !S.shape.fillOn;
+    syncShapeUi();
+  };
+  $('#shape-fill').oninput = (e) => { S.shape.fillColor = e.target.value; if (!S.shape.fillOn) { S.shape.fillOn = true; syncShapeUi(); } };
+  $('#shape-alpha').oninput = (e) => { S.shape.alpha = +e.target.value / 100; syncShapeUi(); };
   $('#search').addEventListener('input', (e) => renderTiles(e.target.value));
   $('#find').addEventListener('keydown', (e) => { if (e.key === 'Enter') search($('#find').value); });
   $('#recent-clear').onclick = async (e) => { e.stopPropagation(); if (window.nova) await window.nova.clearRecent(); renderRecent(); };

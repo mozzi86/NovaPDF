@@ -121,6 +121,13 @@ button.tiny { font-size: 12px; padding: 4px 9px; color: var(--muted); }
 #toolbar input[type="range"] { width: 84px; }
 #zoom-label { min-width: 46px; text-align: center; color: var(--muted); font-variant-numeric: tabular-nums; }
 #toolbar #zoom-slider { width: 112px; }
+#shape-opts { gap: 6px; }
+#toolbar #shape-alpha { width: 76px; }
+#shape-alpha-label { min-width: 40px; text-align: right; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+/* Ohne Fuellung sind Farbe und Deckkraft bedeutungslos — sichtbar lassen,
+   aber ausgrauen, damit die Leiste nicht bei jedem Klick die Breite wechselt. */
+#shape-opts.no-fill #shape-fill, #shape-opts.no-fill #shape-alpha { opacity: .35; pointer-events: none; }
+#shape-opts.no-fill #shape-alpha-label { opacity: .35; }
 
 .menu-wrap { position: relative; }
 .menu { position: absolute; top: calc(100% + 6px); left: 0; z-index: 30; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-ctl); padding: 6px; min-width: 230px; box-shadow: 0 12px 36px rgba(0,0,0,.5); display: flex; flex-direction: column; gap: 2px; }
@@ -169,6 +176,13 @@ aside { background: var(--bg2); overflow-y: auto; flex-shrink: 0; }
    erreichen Stift/Haken/Markierung die Canvas nie. Nur die Textfelder darin
    fangen Klicks selbst ab (zum Bearbeiten). */
 .page-wrap .overlay { position: absolute; inset: 0; pointer-events: none; }
+/* Fadenkreuz fuer die Werkzeuge, bei denen ein Punkt zaehlt. */
+body[data-active-tool="pipette"] canvas.anno,
+body[data-active-tool="line"] canvas.anno,
+body[data-active-tool="arrow"] canvas.anno,
+body[data-active-tool="ellipse"] canvas.anno,
+body[data-active-tool="rect"] canvas.anno { cursor: crosshair; }
+
 .anno-text { position: absolute; border: 1px dashed transparent; min-width: 20px; min-height: 18px; padding: 1px 3px; outline: none; cursor: text; white-space: pre-wrap; pointer-events: auto; }
 .anno-text:hover, .anno-text:focus { border-color: var(--accent); }
 

@@ -75,6 +75,21 @@ const textOf = async (bytes, n) => {
   const tc = await (await d.getPage(n)).getTextContent();
   const t = tc.items.map((i) => i.str).join(' ').trim(); await destroyDoc(d); return t;
 };
+const inkIn = async (bytes, n, x, y, w, h, want) => {
+  const d = await pdfjs.getDocument({ data: toParent(bytes) }).promise;
+  const p = await d.getPage(n); const vp = p.getViewport({ scale: 1 });
+  const c = document.createElement('canvas'); c.width = vp.width; c.height = vp.height;
+  const ctx = c.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height);
+  await p.render({ canvasContext: ctx, viewport: vp }).promise;
+  const img = ctx.getImageData(x, y, w, h).data;
+  let hits = 0;
+  for (let i = 0; i < img.length; i += 4) {
+    if (want === 'red' ? (img[i] > 140 && img[i + 1] < 120 && img[i + 2] < 120)
+                       : (img[i] < 240 || img[i + 1] < 240 || img[i + 2] < 240)) hits++;
+  }
+  await destroyDoc(d);
+  return hits;
+};
 const renderPx = async (bytes, n, x, y, scale = 1) => {
   const d = await pdfjs.getDocument({ data: toParent(bytes) }).promise;
   const p = await d.getPage(n); const vp = p.getViewport({ scale });
@@ -336,6 +351,124 @@ try {
     // 1191 pt quer, eingepasst auf 595 pt Blattbreite -> ~209.9 mm, nicht ~420 mm
     rec('Drucken: abweichendes Format wird eingepasst', snap && snap.pages === 2 && cssW < 211, snap && snap.cssWLast + ' / ' + snap.pages + ' Seiten');
     rec('Drucken: Hinweis auf abweichende Formate', status().includes('eingepasst'), status());
+  }
+
+  // --- Gruppe 7: Formen und Pipette ---
+  await drop(await mkDoc(1), 'formen.pdf');
+  {
+    const cin = ID.querySelector('#color');
+    cin.value = '#e02020'; cin.dispatchEvent(new IW.Event('input', { bubbles: true }));
+    const sin = ID.querySelector('#size');
+    sin.value = '6'; sin.dispatchEvent(new IW.Event('input', { bubbles: true }));
+    const wrapS = ID.querySelector('.page-wrap[data-page="0"]');
+    const annoS = wrapS.querySelector('canvas.anno');
+    // Seitenkoordinaten -> Bildschirm: die Canvas ist mit dem Zoom skaliert.
+    const drag = async (t, x1, y1, x2, y2) => {
+      ID.querySelector('[data-tool="' + t + '"]').click();
+      const r = annoS.getBoundingClientRect(), Z = r.width / 595;
+      const at = (x, y) => ({ clientX: r.left + x * Z, clientY: r.top + y * Z, bubbles: true });
+      annoS.dispatchEvent(new MouseEvent('mousedown', at(x1, y1)));
+      annoS.dispatchEvent(new MouseEvent('mousemove', at((x1 + x2) / 2, (y1 + y2) / 2)));
+      annoS.dispatchEvent(new MouseEvent('mousemove', at(x2, y2)));
+      IW.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+      await new Promise((res) => setTimeout(res, 80));
+    };
+
+    await drag('ellipse', 100, 100, 300, 250);
+    await drag('line', 100, 600, 400, 700);
+    await drag('arrow', 450, 300, 450, 500);
+    let bs = await exportPdf();
+    // Ellipse: Rand traegt Farbe, die Mitte bleibt leer — sie ist nicht gefuellt.
+    const edge = await inkIn(bs, 1, 94, 168, 14, 16, 'red');
+    const mid = await inkIn(bs, 1, 190, 168, 22, 16, 'red');
+    rec('Form: Ellipse hat Rand', edge > 0, 'Randpunkte: ' + edge);
+    rec('Form: Ellipse ist nicht gefüllt', mid === 0, 'Punkte in der Mitte: ' + mid);
+    // Linie: Mitte der Diagonale von (100,600) nach (400,700) liegt bei (250,650).
+    const lineMid = await inkIn(bs, 1, 242, 643, 16, 14, 'red');
+    rec('Form: Linie liegt auf der Diagonale', lineMid > 0, 'Punkte: ' + lineMid);
+    // Pfeil: an der Spitze muss mehr Farbe stehen als im Schaft — das ist die Spitze.
+    const shaft = await inkIn(bs, 1, 430, 380, 40, 12, 'red');
+    const tip = await inkIn(bs, 1, 430, 476, 40, 12, 'red');
+    rec('Form: Pfeil hat eine Spitze', tip > shaft && shaft > 0, 'Schaft ' + shaft + ' / Spitze ' + tip);
+
+    // Pipette: Farbe vom gezeichneten Pfeil aufnehmen, danach muss das vorige
+    // Werkzeug zurueck sein — eine Pipette ist ein Zwischengriff.
+    ID.querySelector('[data-tool="rect"]').click();
+    ID.querySelector('[data-tool="pipette"]').click();
+    cin.value = '#ffffff'; cin.dispatchEvent(new IW.Event('input', { bubbles: true }));
+    {
+      const r = annoS.getBoundingClientRect(), Z = r.width / 595;
+      annoS.dispatchEvent(new MouseEvent('click', { clientX: r.left + 450 * Z, clientY: r.top + 400 * Z, bubbles: true }));
+    }
+    await wait(() => status().includes('Farbe aufgenommen'), 8000);
+    const picked = ID.querySelector('#color').value.toLowerCase();
+    rec('Pipette nimmt die Farbe des Objekts', /^#e0[0-9a-f]{2}[0-9a-f]{2}$/.test(picked) && picked !== '#ffffff', picked + ' / ' + status());
+    const activeNow = [...ID.querySelectorAll('#tool-buttons button.active')].map((b) => b.dataset.tool).join(',') || '(keins)';
+    rec('Pipette springt zum vorigen Werkzeug zurück', activeNow === 'rect', 'aktiv: ' + activeNow);
+    // data-tool darf ausschliesslich an den Werkzeugknoepfen haengen: bind()
+    // gibt jedem Treffer einen Klick-Handler, ein zweiter Traeger waere ein
+    // unsichtbarer Umschalter.
+    rec('data-tool bleibt bei den Werkzeugknöpfen',
+        [...ID.querySelectorAll('[data-tool]')].every((n) => n.closest('#tool-buttons')),
+        ID.querySelectorAll('[data-tool]').length + ' Treffer');
+ 
+    // --- Fuellung, Deckkraft, Rand abschaltbar ---
+    const want = (sel, on) => { const b = ID.querySelector(sel); if (b.classList.contains('active') !== on) b.click(); };
+    const setRange = (sel, v) => { const el2 = ID.querySelector(sel); el2.value = String(v); el2.dispatchEvent(new IW.Event('input', { bubbles: true })); };
+    const setColor = (sel, v) => { const el2 = ID.querySelector(sel); el2.value = v; el2.dispatchEvent(new IW.Event('input', { bubbles: true })); };
+
+    await drop(await mkDoc(1), 'fuellung.pdf');
+    const wrapF2 = ID.querySelector('.page-wrap[data-page="0"]');
+    const annoF2 = wrapF2.querySelector('canvas.anno');
+    const drag2 = async (t, x1, y1, x2, y2) => {
+      const r = annoF2.getBoundingClientRect(), Z = r.width / 595;
+      const at = (x, y) => ({ clientX: r.left + x * Z, clientY: r.top + y * Z, bubbles: true });
+      annoF2.dispatchEvent(new MouseEvent('mousedown', at(x1, y1)));
+      annoF2.dispatchEvent(new MouseEvent('mousemove', at((x1 + x2) / 2, (y1 + y2) / 2)));
+      annoF2.dispatchEvent(new MouseEvent('mousemove', at(x2, y2)));
+      IW.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+      await new Promise((res) => setTimeout(res, 80));
+    };
+
+    ID.querySelector('[data-tool="rect"]').click();
+    rec('Form-Leiste zeigt sich bei Rechteck', !ID.querySelector('#shape-opts').classList.contains('hidden'));
+    setColor('#color', '#e02020');       // waere der Rand
+    setColor('#shape-fill', '#2bb673');  // die Fuellung
+    setRange('#size', 6);
+    want('#shape-fill-on', true);
+    want('#shape-stroke', false);
+    setRange('#shape-alpha', 100);
+    await drag2('rect', 60, 80, 260, 200);
+
+    setRange('#shape-alpha', 30);
+    await drag2('rect', 300, 80, 500, 200);
+
+    want('#shape-stroke', true);
+    setRange('#shape-alpha', 100);
+    await drag2('rect', 60, 260, 260, 380);
+
+    const bf = await exportPdf();
+    const opaque = await renderPx(bf, 1, 160, 140);
+    const clear = await renderPx(bf, 1, 400, 140);
+    const withEdge = await renderPx(bf, 1, 60, 320);
+    const redAnywhere = await inkIn(bf, 1, 55, 75, 210, 130, 'red');
+
+    rec('Füllung: deckend gefüllt', opaque[1] > 130 && opaque[0] < 110, opaque.join(','));
+    rec('Füllung: Rand abschaltbar', redAnywhere === 0, 'rote Punkte im Rechteck ohne Rand: ' + redAnywhere);
+    rec('Füllung: Deckkraft 30 % ist heller als 100 %', clear[0] > opaque[0] + 60 && clear[1] > 200,
+        '100 %: ' + opaque.join(',') + '  30 %: ' + clear.join(','));
+    rec('Füllung: Rand wieder einschaltbar', withEdge[0] > 140 && withEdge[1] < 120, withEdge.join(','));
+
+    // Eine Form ohne Rand UND ohne Fuellung waere unsichtbar — das darf die
+    // Leiste gar nicht erst zulassen.
+    want('#shape-fill-on', true); want('#shape-stroke', false);
+    ID.querySelector('#shape-fill-on').click(); // Fuellung aus, obwohl Rand aus ist
+    rec('Füllung: unsichtbare Form wird verhindert',
+        ID.querySelector('#shape-stroke').classList.contains('active') || ID.querySelector('#shape-fill-on').classList.contains('active'),
+        'Rand ' + ID.querySelector('#shape-stroke').classList.contains('active') + ' / Füllung ' + ID.querySelector('#shape-fill-on').classList.contains('active'));
+
+    ID.querySelector('[data-tool="line"]').click();
+    rec('Form-Leiste verschwindet bei Linie', ID.querySelector('#shape-opts').classList.contains('hidden'));
   }
 
   rec('GESAMT', RESULTS.tests.every((t) => t.pass || t.name === 'GESAMT'), RESULTS.tests.filter((t) => t.pass).length + '/' + RESULTS.tests.length);
