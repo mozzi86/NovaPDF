@@ -149,6 +149,19 @@ try {
   rec('Verschobene Seite behält Drehung', rot3);
   rec('Formularfeld überlebt Verschieben', ID.querySelectorAll('#fields .field').length === 1);
 
+  // Duplizieren: Reihenfolge ist jetzt [Seite 2, Seite 3, Seite 1, Seite 4].
+  ID.querySelectorAll('.thumb')[2].querySelector('button[title="Duplizieren"]').click();
+  await waitStatus('dupliziert');
+  const bytesDup = await exportPdf();
+  const dupOrder = []; for (let i = 1; i <= 5; i++) dupOrder.push(await textOf(bytesDup, i));
+  rec('Seite duplizieren: eine Seite mehr', ID.querySelectorAll('.thumb').length === 5, ID.querySelectorAll('.thumb').length + ' Miniaturen');
+  rec('Seite duplizieren: Kopie sitzt direkt hinter dem Original', dupOrder.join(',') === 'Seite 2,Seite 3,Seite 1,Seite 1,Seite 4', dupOrder.join(' | '));
+  rec('Seite duplizieren: Formularfeld überlebt', ID.querySelectorAll('#fields .field').length === 1);
+  // Kopie wieder entfernen — die folgenden Gruppen rechnen mit vier Seiten.
+  ID.querySelectorAll('.thumb')[3].querySelector('button[title="Löschen"]').click();
+  await waitStatus('gelöscht');
+  rec('Seite duplizieren: Kopie lässt sich wieder löschen', ID.querySelectorAll('.thumb').length === 4);
+
   // --- Gruppe 2: Zusammenführen / Entfernen / Extrahieren / Teilen ---
   fileQueue.push({ name: 'anhang.pdf', path: '/t/anhang.pdf', bytes: await mkDoc(2) });
   ID.querySelector('[data-act="add"]').click();
@@ -469,6 +482,55 @@ try {
 
     ID.querySelector('[data-tool="line"]').click();
     rec('Form-Leiste verschwindet bei Linie', ID.querySelector('#shape-opts').classList.contains('hidden'));
+
+    // --- Wiederholen (Redo) ---
+    await drop(await mkDoc(1), 'redo.pdf');
+    const wrapR = ID.querySelector('.page-wrap[data-page="0"]');
+    const annoR = wrapR.querySelector('canvas.anno');
+    const dragR = async (t, x1, y1, x2, y2) => {
+      ID.querySelector('[data-tool="' + t + '"]').click();
+      const r = annoR.getBoundingClientRect(), Z = r.width / 595;
+      const at = (x, y) => ({ clientX: r.left + x * Z, clientY: r.top + y * Z, bubbles: true });
+      annoR.dispatchEvent(new MouseEvent('mousedown', at(x1, y1)));
+      annoR.dispatchEvent(new MouseEvent('mousemove', at(x2, y2)));
+      IW.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+      await new Promise((res) => setTimeout(res, 80));
+    };
+    const redInk = async (x, y, w, h) => inkIn(await exportPdf(), 1, x, y, w, h, 'red');
+    setColor('#color', '#e02020'); setRange('#size', 6);
+    want('#shape-stroke', true); want('#shape-fill-on', false);
+
+    await dragR('rect', 100, 100, 300, 250);
+    const drawn = await redInk(94, 168, 14, 16);
+    ID.querySelector('[data-act="undo"]').click();
+    await waitStatus('Rückgängig');
+    const afterUndo = await redInk(94, 168, 14, 16);
+    ID.querySelector('[data-act="redo"]').click();
+    await waitStatus('Wiederholt');
+    const afterRedo = await redInk(94, 168, 14, 16);
+    rec('Wiederholen: Rückgängig entfernt die Form', drawn > 0 && afterUndo === 0, drawn + ' → ' + afterUndo);
+    rec('Wiederholen: Wiederholen holt sie zurück', afterRedo > 0, String(afterRedo));
+
+    ID.querySelector('[data-act="redo"]').click();
+    await waitStatus('Nichts zu wiederholen');
+    rec('Wiederholen: leerer Stapel meldet sich', status().includes('Nichts zu wiederholen'), status());
+
+    // Eine neue Aktion nach Rueckgaengig macht den Wiederholen-Stapel ungueltig.
+    ID.querySelector('[data-act="undo"]').click(); await waitStatus('Rückgängig');
+    await dragR('rect', 350, 100, 500, 250);
+    ID.querySelector('[data-act="redo"]').click();
+    await waitStatus('Nichts zu wiederholen');
+    rec('Wiederholen: neue Aktion verwirft den Stapel', status().includes('Nichts zu wiederholen'), status());
+
+    // Tastenkuerzel im Browser-Build: Strg+Z, Strg+Umschalt+Z, Strg+Y.
+    const key = (k, extra) => IW.dispatchEvent(new IW.KeyboardEvent('keydown', Object.assign({ key: k, ctrlKey: true, bubbles: true, cancelable: true }, extra || {})));
+    key('z'); await waitStatus('Rückgängig');
+    rec('Wiederholen: Strg+Z macht rückgängig', status().includes('Rückgängig'), status());
+    key('Z', { shiftKey: true }); await waitStatus('Wiederholt');
+    rec('Wiederholen: Strg+Umschalt+Z wiederholt', status().includes('Wiederholt'), status());
+    key('z'); await waitStatus('Rückgängig');
+    key('y'); await waitStatus('Wiederholt');
+    rec('Wiederholen: Strg+Y wiederholt', status().includes('Wiederholt'), status());
   }
 
   rec('GESAMT', RESULTS.tests.every((t) => t.pass || t.name === 'GESAMT'), RESULTS.tests.filter((t) => t.pass).length + '/' + RESULTS.tests.length);

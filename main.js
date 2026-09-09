@@ -187,6 +187,10 @@ function buildMenu() {
       label: 'Bearbeiten',
       submenu: [
         { label: 'Rückgängig', accelerator: 'CmdOrCtrl+Z', click: () => mainWindow.webContents.send('menu', 'undo') },
+        { label: 'Wiederholen', accelerator: 'CmdOrCtrl+Shift+Z', click: () => mainWindow.webContents.send('menu', 'redo') },
+        // Zweites Kuerzel fuer dieselbe Aktion (Windows-Gewohnheit). Unsichtbar,
+        // damit das Menue den Eintrag nicht doppelt zeigt — der Accelerator gilt trotzdem.
+        { label: 'Wiederholen', accelerator: 'CmdOrCtrl+Y', visible: false, click: () => mainWindow.webContents.send('menu', 'redo') },
         { type: 'separator' },
         { label: 'Suchen…', accelerator: 'CmdOrCtrl+F', click: () => mainWindow.webContents.send('menu', 'find') }
       ]

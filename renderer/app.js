@@ -11,7 +11,7 @@ const S = {
   pdfDoc: null, bytes: null, pdfjs: null,
   zoom: 1.0, lz: 1.0, tool: 'cursor', color: '#ffd400', size: 3,
   annos: {}, formValues: {}, vp1: [], textItems: [], fileName: 'dokument.pdf',
-  selected: 0, undo: [], watermark: null, pageNumbers: null, stamp: null,
+  selected: 0, undo: [], redo: [], watermark: null, pageNumbers: null, stamp: null,
   sel: null, // aktuell ausgewählte Annotation: { page, anno }
   // Rand/Füllung für Rechteck und Ellipse (Leiste „Form"), siehe shapeStyle()
   shape: { stroke: true, fillOn: false, fillColor: '#4d8dff', alpha: 0.35 }
@@ -118,7 +118,7 @@ async function openAndShow(bytes, name, opts = {}) {
     return false;
   }
   S.pdfDoc = doc;
-  S.annos = {}; S.formValues = {}; S.undo = []; S.watermark = null; S.pageNumbers = null; S.stamp = null;
+  S.annos = {}; S.formValues = {}; S.undo = []; S.redo = []; S.watermark = null; S.pageNumbers = null; S.stamp = null;
   if (name) { S.fileName = name; $('#doc-name').textContent = name; }
   await refresh(true); readForm();
   showView('editor');
@@ -229,9 +229,11 @@ async function renderThumbs() {
     const ops = el('div', 'ops');
     const rot = el('button', 'ghost'); rot.innerHTML = '<i class="ph ph-arrow-clockwise"></i>'; rot.title = 'Drehen';
     rot.onclick = (e) => { e.stopPropagation(); rotatePage(i); };
+    const dup = el('button', 'ghost'); dup.innerHTML = '<i class="ph ph-copy"></i>'; dup.title = 'Duplizieren';
+    dup.onclick = (e) => { e.stopPropagation(); duplicatePage(i); };
     const del = el('button', 'ghost'); del.innerHTML = '<i class="ph ph-trash"></i>'; del.title = 'Löschen';
     del.onclick = (e) => { e.stopPropagation(); deletePage(i); };
-    ops.append(rot, del); t.appendChild(ops);
+    ops.append(rot, dup, del); t.appendChild(ops);
     t.onclick = () => selectPage(i);
     t.ondragstart = (e) => e.dataTransfer.setData('text/plain', String(i));
     t.ondragover = (e) => { e.preventDefault(); t.classList.add('dragover'); };
@@ -417,15 +419,30 @@ function drawAnnos(pageIndex) {
 }
 let marqueeBox = null; // { page, x, y, w, h } während des Aufziehens
 function removeAnno(p, a) { S.annos[p] = (S.annos[p] || []).filter((x) => x !== a); drawAnnos(p); }
-function pushUndo() { S.undo.push(JSON.stringify(serializeAnnos())); if (S.undo.length > 40) S.undo.shift(); }
 function serializeAnnos() { const o = {}; for (const k in S.annos) o[k] = S.annos[k].map(({ _img, ...r }) => r); return { annos: o, forms: S.formValues }; }
-async function undo() {
-  const snap = S.undo.pop(); if (!snap) { status('Nichts rückgängig zu machen'); return; }
+const snapshot = () => JSON.stringify(serializeAnnos());
+async function restoreSnapshot(snap) {
   const d = JSON.parse(snap); S.annos = d.annos || {}; S.formValues = d.forms || {};
   S.sel = null; marqueeBox = null; // Auswahl zeigt sonst auf nicht mehr existierende Objekte
   await rehydrateImages();
   document.querySelectorAll('.page-wrap').forEach((w) => drawAnnos(+w.dataset.page));
+}
+// Jede neue Aktion leert den Wiederholen-Stapel: was dort laege, gehoert zu
+// einer Vergangenheit, die es nach dieser Aktion nicht mehr gibt.
+function pushUndo() { S.undo.push(snapshot()); if (S.undo.length > 40) S.undo.shift(); S.redo = []; }
+async function undo() {
+  const snap = S.undo.pop(); if (!snap) { status('Nichts rückgängig zu machen'); return; }
+  S.redo.push(snapshot());
+  await restoreSnapshot(snap);
   status('Rückgängig');
+}
+async function redo() {
+  const snap = S.redo.pop(); if (!snap) { status('Nichts zu wiederholen'); return; }
+  // Direkt auf den Undo-Stapel, NICHT ueber pushUndo — das wuerde den Rest des
+  // Wiederholen-Stapels loeschen, den wir gerade abarbeiten.
+  S.undo.push(snapshot()); if (S.undo.length > 40) S.undo.shift();
+  await restoreSnapshot(snap);
+  status('Wiederholt');
 }
 async function rehydrateImages() { for (const k in S.annos) for (const a of S.annos[k]) if ((a.type === 'image' || a.type === 'sign') && a.dataUrl && !a._img) a._img = await loadImg(a.dataUrl); }
 
@@ -711,6 +728,18 @@ async function rotatePage(i) {
 async function deletePage(i) {
   if (S.pdfDoc.getPageCount() <= 1) { status('Letzte Seite kann nicht gelöscht werden'); return; }
   S.pdfDoc.removePage(i); remapAnnos((idx) => (idx === i ? null : idx > i ? idx - 1 : idx)); await refresh(); status('Seite gelöscht');
+}
+async function duplicatePage(i) {
+  // Kopie innerhalb desselben Dokuments, direkt hinter das Original.
+  const [cp] = await S.pdfDoc.copyPages(S.pdfDoc, [i]);
+  S.pdfDoc.insertPage(i + 1, cp);
+  // Anmerkungen: alles hinter i rueckt eins auf, die Kopie bekommt eine TIEFE
+  // Kopie — geteilte Objekte wuerden sonst auf beiden Seiten zugleich wandern.
+  const own = (S.annos[i] || []).map(({ _img, ...r }) => JSON.parse(JSON.stringify(r)));
+  remapAnnos((idx) => (idx > i ? idx + 1 : idx));
+  if (own.length) S.annos[i + 1] = own;
+  await rehydrateImages();
+  await refresh(); status('Seite dupliziert');
 }
 async function movePage(from, to) {
   if (from === to) return;
@@ -1727,6 +1756,7 @@ async function doAct(act) {
     case 'tools-menu': { const m = $('#tools-menu'); const open = m.classList.contains('hidden'); closeMenus(); if (open) m.classList.remove('hidden'); break; }
     case 'forensic': await applyForensic(); break;
     case 'undo': await undo(); break;
+    case 'redo': await redo(); break;
     case 'print': await printDoc(); break;
     case 'zoom-in': zoom(0.15); break;
     case 'zoom-out': zoom(-0.15); break;
@@ -1814,7 +1844,13 @@ function bind() {
   // (CmdOrCtrl+= / - / 0) — dort nicht binden, sonst zoomt ein Tastendruck doppelt.
   if (!/Electron/i.test(navigator.userAgent)) window.addEventListener('keydown', (e) => {
     if (!(e.ctrlKey || e.metaKey)) return;
+    // Beim Tippen in einem Feld gehoert Strg+Z dem Feld, nicht dem Dokument.
+    const t = document.activeElement;
+    const typing = !!(t && (t.isContentEditable || t.tagName === 'INPUT' || t.tagName === 'TEXTAREA'));
     if (e.key === 'p' || e.key === 'P') { e.preventDefault(); printDoc(); }
+    // Wiederholen vor Rueckgaengig pruefen: Strg+Umschalt+Z traegt auch ein z.
+    else if (!typing && (e.key === 'y' || e.key === 'Y' || ((e.key === 'z' || e.key === 'Z') && e.shiftKey))) { e.preventDefault(); redo(); }
+    else if (!typing && (e.key === 'z' || e.key === 'Z')) { e.preventDefault(); undo(); }
     else if (e.key === '+' || e.key === '=') { e.preventDefault(); setZoom(S.zoom * 1.1); }
     else if (e.key === '-' || e.key === '_') { e.preventDefault(); setZoom(S.zoom / 1.1); }
     else if (e.key === '0') { e.preventDefault(); zoomFit(); }
