@@ -16,7 +16,7 @@ const Recent = {
     a.unshift({ path: p, name: path.basename(p), time: Date.now() });
     this.set(a.slice(0, 12));
   },
-  // Bis v1.1.0 hieß die App "NovaPDF". userData leitet sich vom App-Namen ab und
+  // Bis v1.1.0 hieß die App "NovaPDF", bis v1.1.12 "BIT-Nova PDF" (seit v1.2.0: BIT-PDF). userData leitet sich vom App-Namen ab und
   // liegt seit der Umbenennung woanders, sonst starten Bestandsnutzer ohne
   // "Zuletzt geöffnet". Beide alten Ordner prüfen: gepackt benennt Electron das
   // Profil nach productName ("NovaPDF"), im Dev-Start nach name ("nova-pdf").
@@ -27,7 +27,7 @@ const Recent = {
       const dest = this.file();
       if (fs.existsSync(dest)) return;
       const appData = app.getPath('appData');
-      const legacy = ['NovaPDF', 'nova-pdf']
+      const legacy = ['BIT-Nova PDF', 'bit-nova-pdf', 'NovaPDF', 'nova-pdf']
         .map((n) => path.join(appData, n, 'recent.json'))
         .find((f) => f !== dest && fs.existsSync(f));
       if (!legacy) return;
@@ -64,7 +64,7 @@ const UPDATE_PAGE = 'https://github.com/mozzi86/NovaPDF/releases/latest';
 function fetchLatestRelease() {
   return new Promise((resolve, reject) => {
     const req = require('https').get(UPDATE_API, {
-      headers: { 'User-Agent': 'BIT-Nova-PDF/' + app.getVersion(), Accept: 'application/vnd.github+json' },
+      headers: { 'User-Agent': 'BIT-PDF/' + app.getVersion(), Accept: 'application/vnd.github+json' },
       timeout: 8000
     }, (res) => {
       if (res.statusCode !== 200) { res.resume(); reject(new Error('HTTP ' + res.statusCode)); return; }
@@ -113,7 +113,7 @@ function createWindow() {
     minWidth: 900,
     minHeight: 600,
     backgroundColor: '#1f2430',
-    title: 'BIT-Nova PDF',
+    title: 'BIT-PDF',
     ...(fs.existsSync(iconPath) ? { icon: iconPath } : {}),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -155,7 +155,7 @@ function sendOpenFile(p) {
   } catch {}
 }
 
-// macOS: Doppelklick auf eine PDF im Finder / "Öffnen mit BIT-Nova PDF".
+// macOS: Doppelklick auf eine PDF im Finder / "Öffnen mit BIT-PDF".
 // Feuert ggf. schon vor app.whenReady — Listener muss früh registriert sein.
 app.on('open-file', (e, p) => {
   e.preventDefault();
@@ -223,12 +223,12 @@ function buildMenu() {
             const r = await checkForUpdate();
             if (r.state === 'update') return; // der Hinweisstreifen im Fenster sagt schon Bescheid
             dialog.showMessageBox(mainWindow, r.state === 'current'
-              ? { type: 'info', title: 'Update', message: 'BIT-Nova PDF ist aktuell.', detail: 'Installiert: ' + r.current }
+              ? { type: 'info', title: 'Update', message: 'BIT-PDF ist aktuell.', detail: 'Installiert: ' + r.current }
               : { type: 'warning', title: 'Update', message: 'Prüfung nicht möglich.', detail: 'Installiert: ' + r.current + '\n' + r.error });
           }
         },
         { type: 'separator' },
-        { label: 'Über BIT-Nova PDF', click: () => dialog.showMessageBox(mainWindow, { type: 'info', title: 'BIT-Nova PDF', message: 'BIT-Nova PDF ' + app.getVersion(), detail: 'Portabler PDF-Editor\nView · Annotate · Organize · Forms · Sign · Edit\n\nIhre Dokumente verlassen diesen Rechner nicht. Beim Start fragt das Programm einmal bei github.com nach, ob eine neuere Version vorliegt — dabei werden keine Dateien oder Dokumentdaten übertragen. Diese Abfrage lässt sich im Menü Hilfe abschalten.\n\nBIT-Atelier · Schwarz Architekturbüro' }) }
+        { label: 'Über BIT-PDF', click: () => dialog.showMessageBox(mainWindow, { type: 'info', title: 'BIT-PDF', message: 'BIT-PDF ' + app.getVersion(), detail: 'Portabler PDF-Editor\nView · Annotate · Organize · Forms · Sign · Edit\n\nIhre Dokumente verlassen diesen Rechner nicht. Beim Start fragt das Programm einmal bei github.com nach, ob eine neuere Version vorliegt — dabei werden keine Dateien oder Dokumentdaten übertragen. Diese Abfrage lässt sich im Menü Hilfe abschalten.\n\nBIT-Atelier · Schwarz Architekturbüro' }) }
       ]
     }
   ];

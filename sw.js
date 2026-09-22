@@ -1,4 +1,4 @@
-// BIT-Nova PDF service worker — precache the whole app so it runs fully offline.
+// BIT-PDF service worker — precache the whole app so it runs fully offline.
 // Lives at project root; scope covers renderer/ and vendor/. Relative URLs keep
 // it host-agnostic (works under GitHub Pages sub-paths too).
 //
@@ -13,8 +13,8 @@
 //
 // VERSION is stamped into the cache name; 'activate' deletes every cache with a
 // different name. Bump it together with package.json on each release.
-const VERSION = '1.1.12';
-const CACHE = 'bit-nova-pdf-' + VERSION;
+const VERSION = '1.2.0';
+const CACHE = 'bit-pdf-' + VERSION;
 
 const ASSETS = [
   'renderer/index.html',

@@ -52,7 +52,7 @@ async function main() {
     const font=await d.embedFont(StandardFonts.Helvetica), bold=await d.embedFont(StandardFonts.HelveticaBold);
     const p=d.addPage([595,842]);
     p.drawText('Checkliste Werkplanung',{x:60,y:790,size:20,font:bold});
-    p.drawText('Grundriss M 1:50   Schwarz Architekturbuero Nuernberg',{x:60,y:766,size:9,font,color:rgb(.4,.4,.45)});
+    p.drawText('Grundriss M 1:50   Musterbuero Architekten',{x:60,y:766,size:9,font,color:rgb(.4,.4,.45)});
     const rows=[['Tragende Waende',1],['Material',0],['Dicke',0],['Bemassung',0],['Klinker / Vormauerschale',1],['Fugenbild',0],['Nichttragende Waende',1],['GK-Staender / Typ',0],['Dicke',0],['Unterzuege / Ueberzuege',1],['Stuetzen / Pfeiler',1],['Decken - Roh',1],['Konstruktion',0],['Rohdeckenhoehe',0]];
     let y=710; for(const [t,head] of rows){ p.drawRectangle({x:60,y:y-2,width:11,height:11,borderColor:rgb(.2,.2,.25),borderWidth:1}); p.drawText(t,{x:head?82:82,y:y,size:head?11:10,font:head?bold:font,color:head?rgb(0,0,0):rgb(.3,.3,.35)}); y-=26; }
     const dt=new DataTransfer(); dt.items.add(new File([await d.save()],'Werkplan_Checkliste.pdf',{type:'application/pdf'}));

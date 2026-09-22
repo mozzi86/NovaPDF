@@ -1,4 +1,4 @@
-// NovaPDF renderer — PDF24-style tool launcher + editor.
+// BIT-PDF renderer — PDF24-style tool launcher + editor.
 // pdf.js renders; pdf-lib owns document structure and bakes annotations on export.
 
 import * as pdfjsLib from '../vendor/pdf.mjs';

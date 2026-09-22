@@ -1,6 +1,6 @@
 <div align="center">
 
-# 📄 BIT-Nova PDF
+# 📄 BIT-PDF
 
 ### Portabler PDF-Editor — vollständig lokal, keine Cloud, offline
 
@@ -15,9 +15,9 @@ Bearbeiten · Organisieren · Konvertieren · Signieren · Schwärzen — alles 
 
 ### ⬇️ Download
 
-[![Download macOS](https://img.shields.io/badge/Download-macOS%20(Apple%20Silicon)-000000?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/mozzi86/NovaPDF/releases/latest/download/BIT-Nova-PDF-arm64.dmg)
+[![Download macOS](https://img.shields.io/badge/Download-macOS%20(Apple%20Silicon)-000000?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/mozzi86/NovaPDF/releases/latest/download/BIT-PDF-arm64.dmg)
 &nbsp;
-[![Download Windows](https://img.shields.io/badge/Download-Windows%20(portabel)-0078D6?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/mozzi86/NovaPDF/releases/latest/download/BIT-Nova-PDF-portable.exe)
+[![Download Windows](https://img.shields.io/badge/Download-Windows%20(portabel)-0078D6?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/mozzi86/NovaPDF/releases/latest/download/BIT-PDF-portable.exe)
 &nbsp;
 [![Alle Releases](https://img.shields.io/badge/Alle-Versionen-555555?style=for-the-badge&logo=github&logoColor=white)](https://github.com/mozzi86/NovaPDF/releases)
 
@@ -26,14 +26,14 @@ Bearbeiten · Organisieren · Konvertieren · Signieren · Schwärzen — alles 
 ---
 
 <div align="center">
-<img src="docs/home.png" alt="BIT-Nova PDF Startseite — Werkzeugraster" width="100%">
+<img src="docs/home.png" alt="BIT-PDF Startseite — Werkzeugraster" width="100%">
 <br><br>
-<img src="docs/editor.png" alt="BIT-Nova PDF Editor — Checkliste mit grünen Haken" width="100%">
+<img src="docs/editor.png" alt="BIT-PDF Editor — Checkliste mit grünen Haken" width="100%">
 </div>
 
 ---
 
-## Was BIT-Nova PDF kann
+## Was BIT-PDF kann
 
 | 🗂️ Organisieren | 🔄 Konvertieren | ✏️ Bearbeiten | 🔒 Abschließen |
 |---|---|---|---|
@@ -64,9 +64,9 @@ Alle Werkzeuge laufen **vollständig lokal** im Electron-Prozess. Es gibt keinen
 
 ## Installation (macOS)
 
-1. DMG oben herunterladen und öffnen, BIT-Nova PDF in **Programme** ziehen.
-2. Beim ersten Start: **Rechtsklick auf BIT-Nova PDF → Öffnen** (die App ist nicht bei Apple notarisiert).
-3. PDF öffnen per **Drag & Drop ins Fenster**, über **Datei → Öffnen**, oder Rechtsklick → **Schnellaktionen → Mit BIT-Nova PDF öffnen**.
+1. DMG oben herunterladen und öffnen, BIT-PDF in **Programme** ziehen.
+2. Beim ersten Start: **Rechtsklick auf BIT-PDF → Öffnen** (die App ist nicht bei Apple notarisiert).
+3. PDF öffnen per **Drag & Drop ins Fenster**, über **Datei → Öffnen**, oder Rechtsklick → **Schnellaktionen → Mit BIT-PDF öffnen**.
 
 ## Entwicklung
 
@@ -80,8 +80,8 @@ npm start       # App starten
 
 ```bash
 npm run make-icons  # icons/*.png aus icons/logo.svg neu rendern (nur nach Logo-Änderung)
-npm run dist        # Windows: release/BIT-Nova-PDF-portable.exe
-npm run dist:mac    # macOS:   release/BIT-Nova-PDF-{arm64,x64}.dmg
+npm run dist        # Windows: release/BIT-PDF-portable.exe
+npm run dist:mac    # macOS:   release/BIT-PDF-{arm64,x64}.dmg
 ```
 
 Die portable Windows-`.exe` ist eigenständig — auf jeden Windows-Rechner oder USB-Stick kopierbar, keine Installation.
@@ -97,5 +97,5 @@ Office → PDF (braucht LibreOffice) · PDF → Word/Excel (braucht echte Konver
 ---
 
 <div align="center">
-<sub>Schwarz Architekturbüro Nürnberg · Bilder mit dem eingebauten Screenshot-Skript erzeugt (<code>scripts/make-shots.js</code>)</sub>
+<sub>BIT-Atelier · Bilder mit dem eingebauten Screenshot-Skript erzeugt (<code>scripts/make-shots.js</code>)</sub>
 </div>

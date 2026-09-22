@@ -8,7 +8,7 @@ import { pathToFileURL } from 'node:url';
 const ROOT = process.argv[2];
 // Cache-Name aus sw.js lesen, nicht festverdrahten — sonst schlaegt der Test
 // bei jedem Versionsbump an, obwohl das Verhalten stimmt.
-const EXPECTED_CACHE = 'bit-nova-pdf-' + (fs.readFileSync(path.join(process.argv[2], 'sw.js'), 'utf8').match(/const VERSION = '([^']+)'/) || [,'?'])[1];
+const EXPECTED_CACHE = 'bit-pdf-' + (fs.readFileSync(path.join(process.argv[2], 'sw.js'), 'utf8').match(/const VERSION = '([^']+)'/) || [,'?'])[1];
 const PW = process.argv[3];
 const pw = await import(pathToFileURL(path.join(PW, 'index.js')).href);
 const chromium = pw.chromium || pw.default?.chromium;

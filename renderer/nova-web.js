@@ -1,4 +1,4 @@
-// NovaPDF browser bridge — provides window.nova when NOT running inside Electron
+// BIT-PDF browser bridge — provides window.nova when NOT running inside Electron
 // (i.e. as a PWA / plain web page). The Electron preload sets window.nova first;
 // this file only fills in when that's absent, so the identical renderer runs on
 // Android, iOS/iPadOS, Windows tablets and every desktop browser.
@@ -141,7 +141,7 @@ if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
       catch (e) { return { ok: false, error: e.message }; }
     },
     saveMany: async ({ files, subdir }) => {
-      try { const zip = makeZip(files); downloadBlob(new Blob([zip], { type: 'application/zip' }), (subdir || 'BIT-Nova-PDF') + '.zip'); return { ok: true, path: (subdir || 'BIT-Nova-PDF') + '.zip', count: files.length }; }
+      try { const zip = makeZip(files); downloadBlob(new Blob([zip], { type: 'application/zip' }), (subdir || 'BIT-PDF') + '.zip'); return { ok: true, path: (subdir || 'BIT-PDF') + '.zip', count: files.length }; }
       catch (e) { return { ok: false, error: e.message }; }
     },
     getRecent: async () => (await recentList()).map((r) => ({ path: r.id, name: r.name, time: r.time })),

@@ -1,6 +1,6 @@
 name: Deploy PWA to GitHub Pages
 
-# Publishes the NovaPDF web app (PWA) to GitHub Pages so phones/tablets can
+# Publishes the BIT-PDF web app (PWA) to GitHub Pages so phones/tablets can
 # install it over HTTPS. Requires the repo to be PUBLIC (GitHub Free) and
 # Pages enabled; configure-pages below enables it automatically when it can.
 on:

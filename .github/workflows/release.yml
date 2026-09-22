@@ -39,7 +39,7 @@ jobs:
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: BIT-Nova-PDF-windows
+          name: BIT-PDF-windows
           path: release/*.exe
           if-no-files-found: error
 
@@ -70,6 +70,6 @@ jobs:
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: BIT-Nova-PDF-dmg
+          name: BIT-PDF-dmg
           path: release/*.dmg
           if-no-files-found: error
