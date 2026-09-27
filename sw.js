@@ -13,7 +13,7 @@
 //
 // VERSION is stamped into the cache name; 'activate' deletes every cache with a
 // different name. Bump it together with package.json on each release.
-const VERSION = '1.2.0';
+const VERSION = '1.2.1';
 const CACHE = 'bit-pdf-' + VERSION;
 
 const ASSETS = [

@@ -39,9 +39,9 @@ Bearbeiten · Organisieren · Konvertieren · Signieren · Schwärzen — alles 
 |---|---|---|---|
 | Seiten organisieren | Bilder → PDF | PDF bearbeiten | Forensisch schwärzen |
 | Zusammenführen | PDF → Bilder (PNG/JPG) | Text bearbeiten | Fixieren (flatten) |
-| Teilen | Komprimieren | Kommentieren & zeichnen · **Formen** (Kreis, Linie, Pfeil, Füllung) | **Passwort schützen (AES)** |
-| Drehen · **Duplizieren** | **OCR (Deutsch/Englisch)** | Signieren | Beschränkungen entfernen |
-| Entfernen · Extrahieren | | **Grüner Haken** ✓ | |
+| Teilen | **PDF → Text (.txt)** | Kommentieren & zeichnen · **Formen** (Kreis, Linie, Pfeil, Füllung) | **Passwort schützen (AES)** |
+| Drehen · **Duplizieren** | Komprimieren | Signieren | Beschränkungen entfernen |
+| Entfernen · Extrahieren | **OCR (Deutsch/Englisch)** | **Grüner Haken** ✓ | |
 | **PDF vergleichen** (Diff) | | **Stempel & Briefkopf** | |
 | **Markierungsrahmen** ▢ | | Wasserzeichen · Seitenzahlen | |
 | | | Rückgängig · **Wiederholen** · Pipette | |

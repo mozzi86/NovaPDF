@@ -283,6 +283,13 @@ try {
   const isPng = files.length && files[0].bytes[0] === 0x89 && files[0].bytes[1] === 0x50;
   rec('PDF zu Bildern (PNG-Export)', files.length === 2 && isPng, files.map((f) => f.name).join(', '));
 
+  await drop(await mkDoc(2), 'text.pdf');
+  const beforeTxt = saved.length;
+  tool('PDF zu Text');
+  await wait(() => saved.length > beforeTxt, 30000);
+  const txt = new TextDecoder().decode(lastSaved().bytes);
+  rec('PDF zu Text (.txt-Export)', lastSaved().defaultName === 'text.txt' && txt.includes('Seite 1') && txt.includes('Seite 2') && txt.includes('===== Seite 2 ====='), lastSaved().defaultName + ' / ' + txt.length + ' Zeichen');
+
   // --- Gruppe 6: Drucken (Seitenbereich + Auflösung) ---
   // window.print() wird geshimmt: der Aufruf ist der einzige Moment, in dem die
   // Druckflaeche gefuellt ist — printCleanup() leert sie direkt danach.

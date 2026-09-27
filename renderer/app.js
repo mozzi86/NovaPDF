@@ -43,6 +43,7 @@ const TOOLS = [
 
   { id: 'img2pdf', g: 'Konvertieren', icon: 'ph-images', label: 'Bilder zu PDF', desc: 'PNG/JPG in ein PDF wandeln' },
   { id: 'pdf2img', g: 'Konvertieren', icon: 'ph-image', label: 'PDF zu Bildern', desc: 'Jede Seite als PNG/JPG' },
+  { id: 'pdf2txt', g: 'Konvertieren', icon: 'ph-file-text', label: 'PDF zu Text', desc: 'Gesamten Text als .txt speichern' },
   { id: 'compress', g: 'Konvertieren', icon: 'ph-arrows-in-simple', label: 'Komprimieren', desc: 'Dateigröße reduzieren (Seiten als Bild)' },
   { id: 'ocr', g: 'Konvertieren', icon: 'ph-scan', label: 'OCR (Texterkennung)', desc: 'Gescanntes PDF durchsuchbar machen' },
 
@@ -1127,6 +1128,38 @@ async function exportImages(fmt) {
   status(res.ok ? `${res.count} Bilder gespeichert: ${res.path}` : (res.error ? 'Fehler beim Speichern: ' + res.error : 'Abgebrochen'));
 }
 
+// Liest den Text so, wie er im (gebackenen) PDF steht — Textbearbeitungen
+// sind also drin, ein reiner Scan liefert nichts und verweist auf OCR.
+// pdf.js liefert Textstuecke einzeln; Zeilen werden ueber die y-Position und
+// das hasEOL-Flag wieder zusammengesetzt.
+async function exportText() {
+  status('Text wird ausgelesen…');
+  const baked = await buildExport({ flatten: false });
+  const doc = await pdfjsLib.getDocument({ data: baked.slice(0) }).promise;
+  const base = S.fileName.replace(/\.pdf$/i, '');
+  const parts = []; let chars = 0;
+  for (let i = 1; i <= doc.numPages; i++) {
+    const tc = await (await doc.getPage(i)).getTextContent();
+    const lines = []; let line = '', lastY = null, lastX = null;
+    for (const it of tc.items) {
+      if (typeof it.str !== 'string') continue;
+      const x = it.transform[4], y = it.transform[5];
+      if (lastY !== null && Math.abs(y - lastY) > 2) { lines.push(line); line = ''; lastX = null; }
+      else if (line && lastX !== null && x - lastX > 1 && !/\s$/.test(line) && !/^\s/.test(it.str)) line += ' ';
+      line += it.str; lastY = y; lastX = x + (it.width || 0);
+      if (it.hasEOL) { lines.push(line); line = ''; lastY = null; lastX = null; }
+    }
+    if (line) lines.push(line);
+    const txt = lines.map((l) => l.replace(/\s+$/, '')).join('\n').trim();
+    chars += txt.length;
+    parts.push(`===== Seite ${i} =====\n${txt}`);
+  }
+  if (!chars) { status('Kein Text im Dokument gefunden — bei Scans zuerst OCR ausführen.'); return; }
+  const bytes = new TextEncoder().encode(parts.join('\n\n') + '\n');
+  const res = await window.nova.save({ defaultName: base + '.txt', bytes, ext: 'txt' });
+  saveResultStatus(res, 'Text gespeichert');
+}
+
 async function flatten() {
   if (!S.pdfDoc) return; pushUndo();
   const bytes = await buildExport({ flatten: true });
@@ -1203,6 +1236,7 @@ async function dispatch(id) {
     case 'extract': if (await ensureDoc()) await opExtract(); break;
     case 'img2pdf': await opImagesToPdf(); break;
     case 'pdf2img': if (await ensureDoc()) await exportImages('png'); break;
+    case 'pdf2txt': if (await ensureDoc()) await exportText(); break;
     case 'stamp': if (await ensureDoc()) await opStamp(); break;
     case 'overlay': if (await ensureDoc()) await opOverlay(); break;
     case 'compare': if (await ensureDoc()) await opCompare(); break;

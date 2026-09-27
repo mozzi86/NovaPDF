@@ -51,7 +51,7 @@ if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 4000);
   };
-  const mimeFor = (ext) => ext === 'png' ? 'image/png' : (ext === 'jpg' || ext === 'jpeg') ? 'image/jpeg' : 'application/pdf';
+  const mimeFor = (ext) => ext === 'png' ? 'image/png' : (ext === 'jpg' || ext === 'jpeg') ? 'image/jpeg' : ext === 'txt' ? 'text/plain;charset=utf-8' : 'application/pdf';
 
   // ---- minimal store-only ZIP (no compression) for saveMany ----
   const CRC = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
