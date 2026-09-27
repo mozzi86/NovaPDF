@@ -232,9 +232,11 @@ async function renderThumbs() {
     rot.onclick = (e) => { e.stopPropagation(); rotatePage(i); };
     const dup = el('button', 'ghost'); dup.innerHTML = '<i class="ph ph-copy"></i>'; dup.title = 'Duplizieren';
     dup.onclick = (e) => { e.stopPropagation(); duplicatePage(i); };
+    const blank = el('button', 'ghost'); blank.innerHTML = '<i class="ph ph-file-plus"></i>'; blank.title = 'Leere Seite einfügen';
+    blank.onclick = (e) => { e.stopPropagation(); insertBlankPage(i); };
     const del = el('button', 'ghost'); del.innerHTML = '<i class="ph ph-trash"></i>'; del.title = 'Löschen';
     del.onclick = (e) => { e.stopPropagation(); deletePage(i); };
-    ops.append(rot, dup, del); t.appendChild(ops);
+    ops.append(rot, dup, blank, del); t.appendChild(ops);
     t.onclick = () => selectPage(i);
     t.ondragstart = (e) => e.dataTransfer.setData('text/plain', String(i));
     t.ondragover = (e) => { e.preventDefault(); t.classList.add('dragover'); };
@@ -741,6 +743,16 @@ async function duplicatePage(i) {
   if (own.length) S.annos[i + 1] = own;
   await rehydrateImages();
   await refresh(); status('Seite dupliziert');
+}
+async function insertBlankPage(i) {
+  // Leere Seite direkt hinter Seite i, im Format dieser Seite (Drehung inklusive).
+  const src = S.pdfDoc.getPage(i);
+  const { width, height } = src.getSize();
+  const np = S.pdfDoc.insertPage(i + 1, [width, height]);
+  try { np.setRotation(src.getRotation()); } catch {}
+  // Anmerkungen hinter i ruecken eins auf, die neue Seite bleibt leer.
+  remapAnnos((idx) => (idx > i ? idx + 1 : idx));
+  await refresh(); status('Leere Seite eingefügt');
 }
 async function movePage(from, to) {
   if (from === to) return;

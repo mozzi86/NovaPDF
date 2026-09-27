@@ -162,6 +162,21 @@ try {
   await waitStatus('gelöscht');
   rec('Seite duplizieren: Kopie lässt sich wieder löschen', ID.querySelectorAll('.thumb').length === 4);
 
+  // Leere Seite hinter der ersten Miniatur: Reihenfolge wird [Seite 2, (leer), Seite 3, Seite 1, Seite 4].
+  ID.querySelectorAll('.thumb')[0].querySelector('button[title="Leere Seite einfügen"]').click();
+  await waitStatus('Leere Seite eingefügt');
+  const bytesBlank = await exportPdf();
+  const blankOrder = []; for (let i = 1; i <= 5; i++) blankOrder.push(await textOf(bytesBlank, i));
+  const bd = await pdfjs.getDocument({ data: toParent(bytesBlank) }).promise;
+  const s1 = (await bd.getPage(1)).getViewport({ scale: 1 }), s2 = (await bd.getPage(2)).getViewport({ scale: 1 }); await destroyDoc(bd);
+  rec('Leere Seite: eine Seite mehr', ID.querySelectorAll('.thumb').length === 5, ID.querySelectorAll('.thumb').length + ' Miniaturen');
+  rec('Leere Seite: sitzt direkt hinter der gewählten und ist leer', blankOrder.join(',') === 'Seite 2,,Seite 3,Seite 1,Seite 4', blankOrder.join(' | '));
+  rec('Leere Seite: übernimmt das Format der Nachbarseite', Math.abs(s1.width - s2.width) < 0.5 && Math.abs(s1.height - s2.height) < 0.5, s2.width + 'x' + s2.height);
+  rec('Leere Seite: Formularfeld überlebt', ID.querySelectorAll('#fields .field').length === 1);
+  ID.querySelectorAll('.thumb')[1].querySelector('button[title="Löschen"]').click();
+  await waitStatus('gelöscht');
+  rec('Leere Seite: lässt sich wieder löschen', ID.querySelectorAll('.thumb').length === 4);
+
   // --- Gruppe 2: Zusammenführen / Entfernen / Extrahieren / Teilen ---
   fileQueue.push({ name: 'anhang.pdf', path: '/t/anhang.pdf', bytes: await mkDoc(2) });
   ID.querySelector('[data-act="add"]').click();

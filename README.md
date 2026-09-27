@@ -40,7 +40,7 @@ Bearbeiten · Organisieren · Konvertieren · Signieren · Schwärzen — alles 
 | Seiten organisieren | Bilder → PDF | PDF bearbeiten | Forensisch schwärzen |
 | Zusammenführen | PDF → Bilder (PNG/JPG) | Text bearbeiten | Fixieren (flatten) |
 | Teilen | **PDF → Text (.txt)** | Kommentieren & zeichnen · **Formen** (Kreis, Linie, Pfeil, Füllung) | **Passwort schützen (AES)** |
-| Drehen · **Duplizieren** | Komprimieren | Signieren | Beschränkungen entfernen |
+| Drehen · **Duplizieren** · **Leere Seite** | Komprimieren | Signieren | Beschränkungen entfernen |
 | Entfernen · Extrahieren | **OCR (Deutsch/Englisch)** | **Grüner Haken** ✓ | |
 | **PDF vergleichen** (Diff) | | **Stempel & Briefkopf** | |
 | **Markierungsrahmen** ▢ | | Wasserzeichen · Seitenzahlen | |
